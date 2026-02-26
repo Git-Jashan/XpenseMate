@@ -778,7 +778,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             // ROW 2: Cash & Cards
                                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                MoneyGridBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.Money, title = "Physical Cash", onClick = { })
+                                                MoneyGridBox(modifier = Modifier.weight(1f), iconRes =R.drawable.money_acc, title = "Physical Cash", onClick = { })
                                                 MoneyGridBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.CreditCard, title = "Credit Cards", onClick = { showCardsScreen = true })
                                             }
                                         }
@@ -789,15 +789,15 @@ class MainActivity : ComponentActivity() {
                                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                             // ROW 1: Stocks, SIP, Gold
                                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                                InvestmentSquareBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.TrendingUp, title = "Stocks & Funds", onClick = { showStocksScreen = true })
-                                                InvestmentSquareBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.Autorenew, title = "Cash & Savings", onClick = { showSipsScreen = true })
-                                                InvestmentSquareBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.Circle, title = "Real Estate", onClick = { })
+                                                InvestmentSquareBox(modifier = Modifier.weight(1f), iconRes = R.drawable.candlestick, title = "Stocks & MFs", onClick = { showStocksScreen = true })
+                                                InvestmentSquareBox(modifier = Modifier.weight(1f), iconRes =R.drawable.icons8_gold_48__1_, title = "Gold & Metals", onClick = { showSipsScreen = true })
+                                                InvestmentSquareBox(modifier = Modifier.weight(1f), iconRes = R.drawable.market, title = "Real Estate", onClick = { })
                                             }
                                             // ROW 2: PPF, Crypto, Other
                                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                                InvestmentSquareBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.AccountBalance, title = "Bonds & Fixed income", onClick = { })
-                                                InvestmentSquareBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.CurrencyBitcoin, title = "Crypto assets", onClick = { })
-                                                InvestmentSquareBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.Category, title = "Alternatives", onClick = { })
+                                                InvestmentSquareBox(modifier = Modifier.weight(1f), iconRes = R.drawable.paper, title = "EPF & PPF", onClick = { })
+                                                InvestmentSquareBox(modifier = Modifier.weight(1f), iconRes = R.drawable.virtual_currency, title = "Digital Assets", onClick = { })
+                                                InvestmentSquareBox(modifier = Modifier.weight(1f), icon = Icons.Rounded.Category, title = "Other Assets", onClick = { })
                                             }
                                         }
 
@@ -1221,6 +1221,72 @@ fun InvestmentSquareBox(
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+    }
+}
+// ==========================================
+// CUSTOM XML BOX (Paste at the bottom)
+// ==========================================
+@Composable
+fun MoneyGridBox(
+    modifier: Modifier = Modifier,
+    iconRes: Int, // <-- This grabs your XML file
+    title: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        modifier = modifier.height(60.dp).clickable { onClick() }
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+        }
+    }
+}
+// ==========================================
+// 11. SQUARE INVESTMENT BOX (For Custom XML / R.drawable)
+// ==========================================
+@Composable
+fun InvestmentSquareBox(
+    modifier: Modifier = Modifier,
+    iconRes: Int,
+    title: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        modifier = modifier.aspectRatio(1f).clickable { onClick() }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 8.dp), // <-- Removed side margins to maximize width
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = title,
+                fontSize = 12.sp, // <-- Shrunk the font to force it to fit
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1, // <-- Strict single-line rule
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, // If it still barely misses, adds "..." instead of cutting the letter in half
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
