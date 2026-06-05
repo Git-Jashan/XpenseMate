@@ -1,9 +1,24 @@
-package com.jsingh.XpenseMate
+package com.jsingh.XpenseMate.service
 
+import com.jsingh.XpenseMate.data.*
+import android.R
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import androidx.work.Constraints
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.jsingh.XpenseMate.data.AiStatementResult
+import com.jsingh.XpenseMate.data.AiTransactionResult
+import com.jsingh.XpenseMate.BuildConfig
+import com.jsingh.XpenseMate.data.PendingTransaction
+import com.jsingh.XpenseMate.data.Transaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -16,9 +31,13 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import com.jsingh.XpenseMate.utils.*
 
 object ExpenseEngine {
 
@@ -79,7 +98,7 @@ object ExpenseEngine {
                 else -> "Unknown Source"
             }
 
-            val currentDateForAI = java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            val currentDateForAI = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
 
             val jsonBody = JSONObject().apply {
                 put("sms_text", cleanMessage)
@@ -124,7 +143,7 @@ object ExpenseEngine {
                     if (aiTxn.isValid && safeAmount > 0) {
                         val parsedTimestamp = try {
                             if (!aiTxn.date.isNullOrEmpty()) {
-                                java.time.LocalDate.parse(aiTxn.date)
+                                LocalDate.parse(aiTxn.date)
                                     .atStartOfDay(ZoneId.systemDefault())
                                     .toInstant().toEpochMilli()
                             } else timestamp
@@ -305,21 +324,21 @@ object ExpenseEngine {
 
     // 🚀 Moved safely inside the ExpenseEngine object!
     private fun sendSubscriptionNotification(context: Context, merchant: String, amount: Double) {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "subscription_alerts"
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val channel = android.app.NotificationChannel(
-                channelId, "Subscription Alerts", android.app.NotificationManager.IMPORTANCE_DEFAULT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, "Subscription Alerts", NotificationManager.IMPORTANCE_DEFAULT
             )
             manager.createNotificationChannel(channel)
         }
 
-        val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_dialog_info)
             .setContentTitle("Recurring Payment Detected")
             .setContentText("You paid ₹$amount to $merchant again. Check the app to mark as subscription.")
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
 
@@ -331,30 +350,30 @@ private suspend fun saveToOfflineQueue(context: Context, text: String, appName: 
     db.transactionDao().insertPending(PendingTransaction(0, text, appName, mode, time))
 
     // Tell Android to run SyncWorker the second the internet comes back!
-    val constraints = androidx.work.Constraints.Builder()
-        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+    val constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 
-    val syncRequest = androidx.work.OneTimeWorkRequestBuilder<SyncWorker>()
+    val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
         .setConstraints(constraints)
         .build()
 
-    androidx.work.WorkManager.getInstance(context).enqueue(syncRequest)
+    WorkManager.getInstance(context).enqueue(syncRequest)
     }
     // 🚀 Time Math for Subscriptions
     private fun calculateNextDueDate(currentDueDate: Long, frequency: String): Long {
-        val calendar = java.util.Calendar.getInstance()
+        val calendar = Calendar.getInstance()
 
         // If they missed a payment and it's way past due, base the next date off TODAY
         val baseDate = if (currentDueDate < System.currentTimeMillis()) System.currentTimeMillis() else currentDueDate
         calendar.timeInMillis = baseDate
 
         when (frequency.uppercase()) {
-            "MONTHLY" -> calendar.add(java.util.Calendar.MONTH, 1)
-            "YEARLY" -> calendar.add(java.util.Calendar.YEAR, 1)
-            "WEEKLY" -> calendar.add(java.util.Calendar.WEEK_OF_YEAR, 1)
-            "QUARTERLY" -> calendar.add(java.util.Calendar.MONTH, 3)
-            else -> calendar.add(java.util.Calendar.MONTH, 1) // Default fallback
+            "MONTHLY" -> calendar.add(Calendar.MONTH, 1)
+            "YEARLY" -> calendar.add(Calendar.YEAR, 1)
+            "WEEKLY" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
+            "QUARTERLY" -> calendar.add(Calendar.MONTH, 3)
+            else -> calendar.add(Calendar.MONTH, 1) // Default fallback
         }
         return calendar.timeInMillis
     }

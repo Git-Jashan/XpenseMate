@@ -1,10 +1,12 @@
 package com.jsingh.XpenseMate.data
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 import androidx.room.OnConflictStrategy
+import androidx.room.Update
 
 @Dao
 interface TransactionDao {
@@ -13,7 +15,7 @@ interface TransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransaction(transaction: Transaction)
 
-    @androidx.room.Update
+    @Update
     suspend fun updateTransaction(transaction: Transaction)
 
     // 2. THE READ COMMAND
@@ -21,17 +23,17 @@ interface TransactionDao {
     fun getAllTransactions(): Flow<List<Transaction>>
 
     // 🚀 Deletes a specific transaction from the database
-    @androidx.room.Delete
+    @Delete
     suspend fun deleteTransaction(transaction: Transaction)
 
     // --- OFFLINE QUEUE METHODS ---
-    @androidx.room.Insert
+    @Insert
     suspend fun insertPending(pending: PendingTransaction)
 
-    @androidx.room.Query("SELECT * FROM pending_transactions")
+    @Query("SELECT * FROM pending_transactions")
     suspend fun getAllPending(): List<PendingTransaction>
 
-    @androidx.room.Query("DELETE FROM pending_transactions WHERE id = :id")
+    @Query("DELETE FROM pending_transactions WHERE id = :id")
     suspend fun deletePending(id: Int)
 
     // Checks if you've paid this exact amount to this merchant before

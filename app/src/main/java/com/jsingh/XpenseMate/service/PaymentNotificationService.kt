@@ -1,4 +1,4 @@
-package com.jsingh.XpenseMate
+package com.jsingh.XpenseMate.service
 
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification

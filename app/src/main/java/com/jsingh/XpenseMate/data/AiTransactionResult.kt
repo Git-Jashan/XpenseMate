@@ -1,4 +1,4 @@
-package com.jsingh.XpenseMate
+package com.jsingh.XpenseMate.data
 
 import androidx.annotation.Keep
 import kotlinx.serialization.Serializable
