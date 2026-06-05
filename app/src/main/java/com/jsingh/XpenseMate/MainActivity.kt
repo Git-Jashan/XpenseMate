@@ -133,6 +133,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import android.os.PowerManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -145,6 +146,7 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import kotlinx.coroutines.withContext
+import java.util.Calendar
 
 
 class MainActivity : ComponentActivity() {
@@ -181,6 +183,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
+
+            val mySubscriptions by db.subscriptionDao().getActiveSubscriptions().collectAsState(initial = emptyList())
 
             var isDarkMode by remember { mutableStateOf(ThemeManager.isDarkMode(context)) }
             var showDesignView by remember { mutableStateOf(false) }
@@ -915,6 +919,7 @@ class MainActivity : ComponentActivity() {
                                         0 -> {
                                             HomeTab(
                                                 transactions = transactions,
+                                                subscriptions = mySubscriptions,
                                                 dailyLimit = dailyLimitState,
                                                 monthlyLimit = monthlyLimitState
                                             )
@@ -1046,23 +1051,18 @@ class MainActivity : ComponentActivity() {
                                         Box(
                                             modifier = Modifier.fillMaxSize()
                                                 .background(MaterialTheme.colorScheme.background)
-                                        ) {
-                                            val context = LocalContext.current
-                                            val mySubscriptions = transactions.filter { it.source == "SUBSCRIPTION" }
-
-                                            RecurringPaymentsView(
-                                                subscriptions = mySubscriptions,
-                                                onBackClick = { showRecurringView = false },
-                                                onSaveNew = { merchant, amount, category, mode ->
-                                                    addManualSubscription(context, merchant, amount, category, mode)
-                                                },
-                                                onDelete = { txnToDelete ->
-                                                    CoroutineScope(Dispatchers.IO).launch {
-                                                        val db = AppDatabase.getDatabase(context)
-                                                        db.transactionDao().deleteTransaction(txnToDelete)
-                                                    }
+                                        ) {RecurringPaymentsView(
+                                            subscriptions = mySubscriptions, // 🚀 Uses the live DB list from Fix 1
+                                            onBackClick = { showRecurringView = false },
+                                            onSaveNew = { merchant, amount, frequency, billingDay, category ->
+                                                addManualSubscription(context, merchant, amount, frequency, billingDay, category)
+                                            },
+                                            onDelete = { subToDelete ->
+                                                coroutineScope.launch {
+                                                    db.subscriptionDao().cancelSubscription(subToDelete.id)
                                                 }
-                                            )
+                                            }
+                                        )
                                         }
                                     }
                                     
@@ -1371,10 +1371,10 @@ class MainActivity : ComponentActivity() {
 }
 //TABS
 @Composable
-fun HomeTab(transactions: List<Transaction>,dailyLimit: Double,
+fun HomeTab(transactions: List<Transaction>,subscriptions: List<Subscriptions>,dailyLimit: Double,
             monthlyLimit: Double){
 
-    var recurringSubTab by remember { mutableStateOf("Pending") }
+
     val todayFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
     val todayString = LocalDateTime.now().format(todayFormatter)
     val currentMonthString = LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMM yyyy"))
@@ -1402,6 +1402,8 @@ fun HomeTab(transactions: List<Transaction>,dailyLimit: Double,
     var showCategoryBreakdown by remember { mutableStateOf(false) }
     val formatter = remember { java.text.NumberFormat.getNumberInstance(java.util.Locale("en", "IN")).apply { minimumFractionDigits = 0; maximumFractionDigits = 0 } }
     var selectedHomeTab by remember { mutableIntStateOf(0) }
+    var recurringSubTab by remember { mutableStateOf("Pending") }
+    var categoryTimeframe by remember { mutableStateOf("This Month") }
 
     Column(
         modifier = Modifier
@@ -1480,7 +1482,6 @@ fun HomeTab(transactions: List<Transaction>,dailyLimit: Double,
                     }
                 }
             }
-            // --- THE RIGHT SIDE COLUMN (Restored!) ---
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -1494,7 +1495,6 @@ fun HomeTab(transactions: List<Transaction>,dailyLimit: Double,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .clickable { showCategoryBreakdown = true } // 👈 Triggers the popup
                 ) {
                     Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(painterResource(id = R.drawable.ic_category), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -1503,7 +1503,7 @@ fun HomeTab(transactions: List<Transaction>,dailyLimit: Double,
                     }
                 }
 
-                // 2. Static Analyze Savings Button (Unbroken)
+                // 2. Static Analyze Savings Button
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
@@ -1535,7 +1535,7 @@ fun HomeTab(transactions: List<Transaction>,dailyLimit: Double,
                     .padding(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val tabs = listOf("Recent", "Insights", "Recurring")
+                val tabs = listOf("Recent", "Categories", "Recurring")
                 tabs.forEachIndexed { index, title ->
                     Box(
                         modifier = Modifier
@@ -1575,87 +1575,186 @@ fun HomeTab(transactions: List<Transaction>,dailyLimit: Double,
                 }
             }
             1 -> {
-                Surface(shape = RoundedCornerShape(16.dp), color = safeColor.copy(alpha = 0.2f), modifier = Modifier.fillMaxWidth()) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("💡", fontSize = 24.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("You spent 15% less this week compared to last week. Keep it up!", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                }
-            }
-            2 -> {
-                // 1. WRAPPER BOX: Centers the entire toggle switch horizontally and adds vertical breathing room
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(50), // Makes it perfectly rounded like a pill
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.width(200.dp).height(32.dp)
-                    ) {
-                        // 2. INNER PADDING: Added 2.dp here so the active background doesn't touch the outer edge
-                        Row(modifier = Modifier.fillMaxSize().padding(2.dp)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
 
-                            // "Pending" Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(50))
-                                    .background(
-                                        if (recurringSubTab == "Pending") MaterialTheme.colorScheme.surface.copy(
-                                            0.5f
-                                        ) else Color.Transparent
-                                    )
-                                    .clickable {
-                                        recurringSubTab = "Pending"
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Pending",
-                                    color = if (recurringSubTab == "Pending") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 14.sp
-                                )
+                    // --- 1. The Pill Toggle (Today vs This Month) ---
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.width(200.dp).height(32.dp)
+                        ) {
+                            Row(modifier = Modifier.fillMaxSize().padding(2.dp)) {
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50))
+                                        .background(if (categoryTimeframe == "Today") MaterialTheme.colorScheme.surface.copy(0.5f) else Color.Transparent)
+                                        .clickable { categoryTimeframe = "Today" },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Today", color = if (categoryTimeframe == "Today") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                }
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50))
+                                        .background(if (categoryTimeframe == "This Month") MaterialTheme.colorScheme.surface.copy(0.5f) else Color.Transparent)
+                                        .clickable { categoryTimeframe = "This Month" },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("This Month", color = if (categoryTimeframe == "This Month") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                }
                             }
-                            // "Upcoming" Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(50))
-                                    .background(
-                                        if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.surface.copy(
-                                            0.5f
-                                        ) else Color.Transparent
-                                    )
-                                    .clickable {
-                                        recurringSubTab = "Upcoming"
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Upcoming",
-                                    color = if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 14.sp
-                                )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // --- 2. Smart Date Filtering ---
+                    val todayString = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy"))
+                    val currentMonthString = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"))
+
+                    val categoryTotals = transactions
+                        .filter { txn ->
+                            txn.isExpense && if (categoryTimeframe == "Today") txn.date == todayString else txn.date.contains(currentMonthString)
+                        }
+                        .groupBy { it.category }
+                        .mapValues { entry -> entry.value.sumOf { it.amount } }
+                        .toList()
+                        .sortedByDescending { it.second } // Sorts highest spend to the top
+
+                    // --- 3. The Flat List ---
+                    if (categoryTotals.isEmpty()) {
+                        val emptyText = if (categoryTimeframe == "Today") "today." else "this month."
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                            Text("No expenses logged $emptyText", color = Color.Gray, fontSize = 14.sp)
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            val formatter = remember { java.text.NumberFormat.getNumberInstance(java.util.Locale("en", "IN")).apply { minimumFractionDigits = 0; maximumFractionDigits = 0 } }
+
+                            // Show top 5 categories to keep the dashboard clean
+                            categoryTotals.take(5).forEach { (category, amount) ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = category.take(1).uppercase(),
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(category, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                    Text("₹${formatter.format(amount)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                                HorizontalDivider(modifier = Modifier.fillMaxWidth(), thickness = 0.5.dp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
                             }
                         }
                     }
                 }
             }
+            2 -> {
+                Column(modifier = Modifier.fillMaxWidth()) {
+
+                    // --- 1. The Pill Toggle ---
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.width(200.dp).height(32.dp)
+                        ) {
+                            Row(modifier = Modifier.fillMaxSize().padding(2.dp)) {
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxHeight()
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (recurringSubTab == "Pending") MaterialTheme.colorScheme.surface else Color.Transparent)
+                                        .clickable { recurringSubTab = "Pending" },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Pending",
+                                        color = if (recurringSubTab == "Pending") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxHeight()
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.surface else Color.Transparent)
+                                        .clickable { recurringSubTab = "Upcoming" },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Upcoming",
+                                        color = if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // --- 2. Smart Date Filtering ---
+                    val calendar = java.util.Calendar.getInstance()
+                    calendar.set(java.util.Calendar.HOUR_OF_DAY, 23)
+                    calendar.set(java.util.Calendar.MINUTE, 59)
+                    calendar.set(java.util.Calendar.SECOND, 59)
+                    val endOfToday = calendar.timeInMillis
+
+                    val displayedSubs = subscriptions.filter { sub ->
+                        if (recurringSubTab == "Pending") {
+                            sub.nextDueDate <= endOfToday // Due today or already overdue
+                        } else {
+                            sub.nextDueDate > endOfToday  // Due tomorrow or later
+                        }
+                    }.sortedBy { it.nextDueDate } // Most urgent at the top
+                    // --- 3. The Flat List ---
+                    if (displayedSubs.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No $recurringSubTab subscriptions.",
+                                color = Color.Gray,
+                                fontSize = 14.sp
+                            )
+                        }
+                    } else {
+                        Column {
+                            displayedSubs.forEach { sub ->
+                                HomeSubscriptionItem(sub = sub)
+                            }
+                        }
+                    }
+                }
+              }
         }
     }
-    if (showCategoryBreakdown) {
-        CategoryBreakdownSheet(
-            transactions = transactions,
-            onDismiss = { showCategoryBreakdown = false }
-        )
-    }
+
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -3732,149 +3831,100 @@ fun DetailRow(label: String, value: String)
         )
     }
 }@OptIn(ExperimentalMaterial3Api::class)
-
 @Composable
 fun RecurringPaymentsView(
-    subscriptions: List<Transaction>,
+    subscriptions: List<Subscriptions>,
     onBackClick: () -> Unit,
-    onSaveNew: (String, Double, String, String) -> Unit,
-    onDelete: (Transaction) -> Unit
+    onSaveNew: (String, Double, String, Int, String) -> Unit,
+    onDelete: (Subscriptions) -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var activeFilter by remember { mutableStateOf("All") } // The FilterChip State
+
     val totalSpend = subscriptions.sumOf { it.amount }
 
+    val calendar = Calendar.getInstance()
+    calendar.set(Calendar.HOUR_OF_DAY, 23)
+    calendar.set(Calendar.MINUTE, 59)
+    calendar.set(Calendar.SECOND, 59)
+    val endOfToday = calendar.timeInMillis
+    val displayedSubscriptions = subscriptions.filter { sub ->
+        when (activeFilter) {
+            "Pending" -> sub.nextDueDate <= endOfToday // Due today or already overdue
+            "Upcoming" -> sub.nextDueDate > endOfToday // Due tomorrow or later
+            else -> true
+        }
+    }.sortedBy { it.nextDueDate }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-            ) {
-                // --- 1. ALPHA PILL HEADER ---
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(36.dp)
-                    ) {
+                // --- 1. HEADER ---
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(36.dp)) {
                         IconButton(onClick = { onBackClick() }) {
-                            Icon(
-                                Icons.Rounded.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    ) {
-                        Text(
-                            text = "Recurring Payments",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
+                    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))) {
+                        Text("Recurring Payments", fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                     }
                 }
 
-                // --- 2. THE UPGRADED DASHBOARD CARD ---
+                // --- 2. SUMMARY CARD ---
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                    ),
-                    shape = RoundedCornerShape(24.dp),
-                    elevation = CardDefaults.cardElevation(0.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(0.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Monthly Spend", // 🚀 Shorter, cleaner title
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Recurring Spend", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "₹${String.format("%.2f", totalSpend)}",
-                            fontSize = 36.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // 🚀 The new total count label!
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
-                        ) {
-                            Text(
-                                text = "${subscriptions.size} active payments",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
+                        Text("₹${String.format("%.2f", totalSpend)}", fontSize = 36.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)) {
+                            Text("${subscriptions.size} active payments", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                         }
                     }
                 }
 
-                Text(
-                    text = "Active Subscriptions",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(vertical = 12.dp)
-                )
-
-                // --- 3. THE LIST ---
-                if (subscriptions.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize().padding(bottom = 80.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "No subscriptions added yet.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                // --- 3. FILTER CHIPS ---
+                val filterOptions = listOf("All", "Pending", "Upcoming")
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(filterOptions) { filter ->
+                        FilterChip(
+                            selected = activeFilter == filter,
+                            onClick = { activeFilter = filter },
+                            label = { Text(filter, fontWeight = FontWeight.Medium) },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.onSurface, selectedLabelColor = MaterialTheme.colorScheme.surface)
                         )
                     }
+                }
+
+                // --- 4. THE FULL FLAT LIST ---
+                if (displayedSubscriptions.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize().padding(bottom = 80.dp), contentAlignment = Alignment.Center) {
+                        Text("No $activeFilter subscriptions.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(bottom = 100.dp)
-                    ) {
-                        items(subscriptions) { sub ->
-                            Box(modifier = Modifier.padding(bottom = 8.dp)) {
-                                SubscriptionItemCard(sub = sub, onDelete = { onDelete(sub) })
-                            }
+                    LazyColumn(contentPadding = PaddingValues(bottom = 100.dp)) {
+                        items(displayedSubscriptions) { sub ->
+                            SubscriptionItem(sub = sub, onDelete = { onDelete(sub) })
                         }
                     }
                 }
             }
 
-            // --- 4. FLOATING BUTTON ---
+            // --- 5. FAB & DIALOG ---
             ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(24.dp),
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+                containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(Icons.Rounded.Add, contentDescription = "Add")
@@ -3882,12 +3932,11 @@ fun RecurringPaymentsView(
                 Text("Add New", fontWeight = FontWeight.SemiBold)
             }
 
-            // --- 5. THE DIALOG ---
             if (showAddDialog) {
                 AddSubscriptionDialog(
                     onDismiss = { showAddDialog = false },
-                    onSave = { merchant, amount, category, mode ->
-                        onSaveNew(merchant, amount, category, mode)
+                    onSave = { merchant, amount, frequency, billingDay, category ->
+                        onSaveNew(merchant, amount, frequency, billingDay, category)
                         showAddDialog = false
                     }
                 )
@@ -3897,106 +3946,54 @@ fun RecurringPaymentsView(
 }
 
 @Composable
-fun SubscriptionItemCard(sub: Transaction, onDelete: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(20.dp), // More rounded, modern look
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
+fun SubscriptionItem(sub: Subscriptions, onDelete: () -> Unit) {
+    val firstLetter = sub.merchant.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    val safeFrequency = if (sub.frequency.isNotEmpty()) sub.frequency.take(1).uppercase() + sub.frequency.drop(1).lowercase() else "Unknown"
+    val subtitleText = "$safeFrequency • Due on ${sub.billingDay}${getOrdinalSuffix(sub.billingDay)}"
+
+    Column {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                // Sleek, highly rounded Icon Box
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                    modifier = Modifier.size(50.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.Repeat,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text(
-                        text = sub.merchantName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 🚀 New "Monthly" badge tag
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = "Monthly",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = sub.transactionType, // Shows "UPI" or "Credit Card"
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(46.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(firstLetter, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "- ₹${String.format("%.2f", sub.amount)}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.error
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                // A subtle, smaller delete button that doesn't distract
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
+            Column(modifier = Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.Center) {
+                Text(sub.merchant, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(subtitleText, fontSize = 13.sp, color = Color.Gray, maxLines = 1)
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("- ₹${String.format("%.2f", sub.amount)}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFE57373), maxLines = 1)
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f), modifier = Modifier.size(18.dp))
                 }
             }
         }
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(), thickness = 0.5.dp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
     }
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddSubscriptionDialog(
     onDismiss: () -> Unit,
-    onSave: (String, Double, String, String) -> Unit
+    onSave: (String, Double, String, Int, String) -> Unit
 ) {
     var merchant by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
+    var billingDay by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Entertainment") }
 
-    // Dropdown State
-    var paymentMode by remember { mutableStateOf("UPI") }
+    var frequency by remember { mutableStateOf("Monthly") }
     var expanded by remember { mutableStateOf(false) }
-    val paymentOptions = listOf("UPI", "Credit Card", "Debit Card", "Net Banking")
+    val frequencyOptions = listOf("Monthly", "Yearly", "Weekly")
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -4005,100 +4002,97 @@ fun AddSubscriptionDialog(
         title = { Text("New Subscription", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
-                // 1. Merchant Name
-                OutlinedTextField(
-                    value = merchant,
-                    onValueChange = { merchant = it },
-                    label = { Text("Merchant (e.g. Netflix)") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-                )
-
-                // 2. Amount (NOW STRICTLY A NUMBER PAD)
-                OutlinedTextField(
-                    value = amount,
-                    onValueChange = { amount = it },
-                    label = { Text("Amount (₹)") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number, // 🚀 FORCES NUMBER PAD!
-                        imeAction = ImeAction.Done
-                    )
-                )
-
-                // 3. Payment Mode (NOW A SLEEK DROPDOWN)
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = !expanded }
-                ) {
-                    OutlinedTextField(
-                        value = paymentMode,
-                        onValueChange = {},
-                        readOnly = true, // User can't type, only select
-                        label = { Text("Payment Mode") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
-                    ) {
-                        paymentOptions.forEach { selectionOption ->
-                            DropdownMenuItem(
-                                text = { Text(selectionOption) },
-                                onClick = {
-                                    paymentMode = selectionOption
-                                    expanded = false
-                                }
-                            )
-                        }
+                OutlinedTextField(value = merchant, onValueChange = { merchant = it }, label = { Text("Merchant (e.g. Netflix)") }, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next))
+                OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("Amount (₹)") }, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+                    OutlinedTextField(value = frequency, onValueChange = {}, readOnly = true, label = { Text("Frequency") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }, shape = RoundedCornerShape(12.dp), modifier = Modifier.menuAnchor().fillMaxWidth())
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        frequencyOptions.forEach { selectionOption -> DropdownMenuItem(text = { Text(selectionOption) }, onClick = { frequency = selectionOption; expanded = false }) }
                     }
                 }
+                OutlinedTextField(value = billingDay, onValueChange = { if (it.length <= 2) billingDay = it }, label = { Text("Billing Day (1-31)") }, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Done))
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val finalAmount = amount.toDoubleOrNull() ?: 0.0
-                    if (merchant.isNotBlank() && finalAmount > 0) {
-                        onSave(merchant, finalAmount, category, paymentMode)
-                    }
-                },
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Save", fontWeight = FontWeight.Bold)
-            }
+            Button(onClick = {
+                val finalAmount = amount.toDoubleOrNull() ?: 0.0
+                val finalDay = billingDay.toIntOrNull() ?: 1
+                if (merchant.isNotBlank() && finalAmount > 0) onSave(merchant, finalAmount, frequency, finalDay, category)
+            }, shape = RoundedCornerShape(12.dp)) { Text("Save", fontWeight = FontWeight.Bold) }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
     )
 }
 
-fun addManualSubscription(context: Context, merchant: String, amount: Double, category: String, paymentMode: String) {
-    val currentDate = java.time.LocalDateTime.now()
-    val newSubscription = Transaction(
-        title = merchant,
-        amount = amount,
-        isExpense = true,
-        category = category,
-        date = currentDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy")),
-        time = currentDate.format(DateTimeFormatter.ofPattern("hh:mm a")),
-        timestamp = System.currentTimeMillis(),
-        merchantName = merchant,
-        transactionType = paymentMode,
-        account = "---",
-        phoneNumber = "---",
-        source = "SUBSCRIPTION" // 🚀 Safely flags it!
-    )
-    ExpenseEngine.saveTransaction(newSubscription)
-    android.widget.Toast.makeText(context, "Subscription saved!", android.widget.Toast.LENGTH_SHORT).show()
+// 🚀 HELPER FUNCTIONS (Place these outside your Composable functions)
+fun addManualSubscription(
+    context: Context,
+    merchant: String,
+    amount: Double,
+    frequency: String,
+    billingDay: Int,
+    category: String
+) {
+    CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        val db = AppDatabase.getDatabase(context)
+        val calendar = java.util.Calendar.getInstance()
+        val currentDay = calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        calendar.set(java.util.Calendar.DAY_OF_MONTH, billingDay)
+        if (billingDay < currentDay) calendar.add(java.util.Calendar.MONTH, 1)
+
+        val newSubscription = Subscriptions(
+            merchant = merchant,
+            amount = amount,
+            frequency = frequency.uppercase(),
+            billingDay = billingDay,
+            nextDueDate = calendar.timeInMillis,
+            category = category
+        )
+        db.subscriptionDao().insertSubscription(newSubscription)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            android.widget.Toast.makeText(context, "Subscription saved!", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+fun getOrdinalSuffix(day: Int): String {
+    if (day in 11..13) return "th"
+    return when (day % 10) {
+        1 -> "st"
+        2 -> "nd"
+        3 -> "rd"
+        else -> "th"
+    }
+}
+@Composable
+fun HomeSubscriptionItem(sub: Subscriptions) {
+    val firstLetter = sub.merchant.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    val safeFrequency = if (sub.frequency.isNotEmpty()) sub.frequency.take(1).uppercase() + sub.frequency.drop(1).lowercase() else "Unknown"
+    val subtitleText = "$safeFrequency • Due on ${sub.billingDay}${getOrdinalSuffix(sub.billingDay)}"
+
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(46.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(firstLetter, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.Center) {
+                Text(sub.merchant, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(subtitleText, fontSize = 13.sp, color = Color.Gray, maxLines = 1)
+            }
+
+            Text("₹${String.format("%.2f", sub.amount)}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+        }
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(), thickness = 0.5.dp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+    }
 }

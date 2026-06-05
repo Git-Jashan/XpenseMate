@@ -3,6 +3,9 @@ package com.jsingh.XpenseMate
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class PaymentNotificationService : NotificationListenerService() {
 
@@ -55,49 +58,46 @@ class PaymentNotificationService : NotificationListenerService() {
         "com.postpe.app" to Pair("PostPe", "Pay Later")
     )
 
+    // 🚀 background scope to prevent main thread blocking (Fixes Choreographer/Davey)
+    private val serviceScope = CoroutineScope(Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
-        ExpenseEngine.initialize(this) // Keep AI Engine ready
+        ExpenseEngine.initialize(this)
         Log.d("XpenseMate_Service", "✅ Smart Mega-Tracker active!")
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val packageName = sbn.packageName
 
-        // GATE 1: Check if it's in our map, and extract BOTH variables!
+        // GATE 1: Route package matches safely
         val appData = validFinanceApps[packageName] ?: return
-        val appName = appData.first       // e.g., "GPay" or "CRED"
-        val paymentMode = appData.second  // e.g., "UPI" or "Credit Card"
+        val appName = appData.first
+        val paymentMode = appData.second
 
         val extras = sbn.notification?.extras ?: return
         val title = extras.getCharSequence("android.title")?.toString() ?: ""
         val body = extras.getCharSequence("android.text")?.toString() ?: ""
 
-        val fullMessageLower = "$title $body".lowercase()
-
-        // GATE 2: Junk Filter
-        val junkKeywords = listOf(
-            "otp", "verification code",
-            "failed", "declined", "unsuccessful", "bounced", "reversed"
-        )
-        if (junkKeywords.any { fullMessageLower.contains(it) }) {
-            Log.d("XpenseMate_Service", "🗑️ Dropped: Hard failure or OTP")
-            return
-        }
-
-        // GATE 3: Money Filter
-        val hasMoney = fullMessageLower.contains(Regex("(?i)((?:rs\\.?|inr|₹|rupees)\\s*[0-9,]+\\.?[0-9]*)|([0-9,]+\\.?[0-9]*\\s*(?:rs\\.?|inr|₹|rupees))"))
-        if (!hasMoney) {
-            Log.d("XpenseMate_Service", "🗑️ Dropped: No money detected")
-            return
-        }
-
-        Log.d("XpenseMate_Service", "💸 PROBABLE SPEND from $appName via $paymentMode")
+        if (title.isEmpty() && body.isEmpty()) return
 
         val cleanPayload = "$title - $body"
+        Log.d("XpenseMate_Service", "📡 Notification captured from $appName. Handoff to background pipeline.")
 
-        // 🚀 THE NEW HANDOFF: Sending the Text + App Name + Payment Mode
-        ExpenseEngine.processTransaction(this, cleanPayload, appName, paymentMode, sbn.postTime)
+        // 🚀 THE FIX: Offload network calls & database processing cleanly to the IO Thread Pool
+        serviceScope.launch {
+            try {
+                ExpenseEngine.processTransaction(
+                    this@PaymentNotificationService,
+                    cleanPayload,
+                    appName,
+                    paymentMode,
+                    sbn.postTime
+                )
+            } catch (e: Exception) {
+                Log.e("XpenseMate_Service", "❌ Background pipeline failed processing text: ${e.message}")
+            }
+        }
     }
 
     override fun onDestroy() {

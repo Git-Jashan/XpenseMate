@@ -211,6 +211,7 @@ object ExpenseEngine {
                             try {
                                 val db = AppDatabase.getDatabase(context)
                                 val dao = db.transactionDao()
+                                val subDao = db.subscriptionDao() // 👈 Added Subscriptions DAO
 
                                 // Block duplicates within 2 minutes
                                 val timeWindow = System.currentTimeMillis() - 120_000
@@ -218,14 +219,25 @@ object ExpenseEngine {
                                     return@launch
                                 }
 
-                                val pastPayments = dao.getHistoricalPaymentCount(newTxn.merchantName, newTxn.amount)
-
                                 dao.insertTransaction(newTxn)
                                 Log.d("XpenseMate_Engine", "💾 SAVED SUCCESS → ₹${newTxn.amount}")
 
-                                // Subscriptions Notification
-                                if (pastPayments >= 1 && newTxn.isExpense) {
-                                    sendSubscriptionNotification(context, newTxn.merchantName, newTxn.amount)
+                                // 🚀 THE NEW SUBSCRIPTION BRIDGE
+                                if (newTxn.isExpense) {
+                                    val activeSub = subDao.getSubscriptionByMerchant(newTxn.merchantName)
+
+                                    if (activeSub != null) {
+                                        // 🔄 Known Subscription: Auto-Renew it!
+                                        val newDueDate = calculateNextDueDate(activeSub.nextDueDate, activeSub.frequency)
+                                        subDao.updateNextDueDate(activeSub.id, newDueDate)
+                                        Log.d("XpenseMate_Engine", "🔄 Auto-Renewed: ${activeSub.merchant}. Next due: $newDueDate")
+                                    } else {
+                                        // 🧐 Not known: Check if we should suggest it
+                                        val pastPayments = dao.getHistoricalPaymentCount(newTxn.merchantName, newTxn.amount)
+                                        if (pastPayments >= 1) {
+                                            sendSubscriptionNotification(context, newTxn.merchantName, newTxn.amount)
+                                        }
+                                    }
                                 }
 
                                 withContext(Dispatchers.Main) {
@@ -328,5 +340,22 @@ private suspend fun saveToOfflineQueue(context: Context, text: String, appName: 
         .build()
 
     androidx.work.WorkManager.getInstance(context).enqueue(syncRequest)
- }
+    }
+    // 🚀 Time Math for Subscriptions
+    private fun calculateNextDueDate(currentDueDate: Long, frequency: String): Long {
+        val calendar = java.util.Calendar.getInstance()
+
+        // If they missed a payment and it's way past due, base the next date off TODAY
+        val baseDate = if (currentDueDate < System.currentTimeMillis()) System.currentTimeMillis() else currentDueDate
+        calendar.timeInMillis = baseDate
+
+        when (frequency.uppercase()) {
+            "MONTHLY" -> calendar.add(java.util.Calendar.MONTH, 1)
+            "YEARLY" -> calendar.add(java.util.Calendar.YEAR, 1)
+            "WEEKLY" -> calendar.add(java.util.Calendar.WEEK_OF_YEAR, 1)
+            "QUARTERLY" -> calendar.add(java.util.Calendar.MONTH, 3)
+            else -> calendar.add(java.util.Calendar.MONTH, 1) // Default fallback
+        }
+        return calendar.timeInMillis
+    }
 }

@@ -7,11 +7,18 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-// 🚀 1. Added PendingTransaction::class AND Bumped Version to 11
-@Database(entities = [Transaction::class, PendingTransaction::class], version = 11, exportSchema = false)
+// 🚀 1. Added Subscription::class AND Bumped Version to 12
+@Database(
+    entities = [Transaction::class, PendingTransaction::class, Subscriptions::class],
+    version = 12,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun transactionDao(): TransactionDao
+
+    // 🚀 2. Added the new DAO access point
+    abstract fun subscriptionDao(): SubscriptionsDao
 
     companion object {
         @Volatile
@@ -29,8 +36,6 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // 🚀 2. THE NEW MIGRATION (10 to 11)
-        // Tells Android to create your new Offline Queue table safely!
         private val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
@@ -45,6 +50,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // 🚀 3. THE NEW MIGRATION (11 to 12) for Recurring Subscriptions
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Note: In SQLite, Kotlin 'Double' is 'REAL' and 'Boolean/Long' are 'INTEGER'
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `subscriptions` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `merchant` TEXT NOT NULL, 
+                        `amount` REAL NOT NULL, 
+                        `frequency` TEXT NOT NULL, 
+                        `billingDay` INTEGER NOT NULL,
+                        `nextDueDate` INTEGER NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `isActive` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -52,8 +76,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xpense_db"
                 )
-                    // 🚀 3. Add MIGRATION_10_11 to the builder
-                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    // 🚀 4. Added MIGRATION_11_12 to the builder
+                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
