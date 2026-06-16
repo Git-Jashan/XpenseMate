@@ -44,30 +44,36 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jsingh.XpenseMate.ui.MainActivity.SidebarScreen
-
+import com.jsingh.XpenseMate.SidebarScreen
 
 @Composable
 fun AppDrawer(
     activeRoute: SidebarScreen?,
+    userEmail: String,
     onRouteSelected: (SidebarScreen) -> Unit,
+    onAccountClick: () -> Unit, // 👈 Triggers the clean account popup
     closeDrawer: () -> Unit
 ) {
+    // Dynamically derive display name and initials from the active login email
+    val cleanName = userEmail.substringBefore("@").filter { it.isLetter() }
+    val derivedDisplayName = if (cleanName.isNotEmpty()) cleanName.replaceFirstChar { it.uppercase() } else "User"
+    val derivedInitials = derivedDisplayName.take(2).uppercase()
+
     ModalDrawerSheet(
         drawerContainerColor = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth(0.80f)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
+            // --- HEADER ACCOUNT SECTION ---
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(
-                            alpha = 0.3f
-                        )
-                    )
-                    .clickable { /* TODO: Open Account Info */ }
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .clickable {
+                        closeDrawer()
+                        onAccountClick() // 👈 Opens account info popup dynamically
+                    }
                     .padding(20.dp)
             ) {
                 Row(
@@ -76,13 +82,13 @@ fun AppDrawer(
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surface,
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.size(56.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
-                                "JS",
-                                fontSize = 20.sp,
+                                text = derivedInitials,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -91,14 +97,14 @@ fun AppDrawer(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "J. Singh",
-                            fontSize = 20.sp,
+                            text = derivedDisplayName,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "jsingh@gmail.com",
-                            fontSize = 14.sp,
+                            text = userEmail,
+                            fontSize = 13.sp,
                             color = Color.Gray
                         )
                     }
@@ -117,19 +123,14 @@ fun AppDrawer(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(
-                            alpha = 0.7f
-                        )
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                     ) {
                         Text(
                             text = "Free Plan",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(
-                                horizontal = 10.dp,
-                                vertical = 4.dp
-                            )
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
@@ -145,11 +146,10 @@ fun AppDrawer(
 
             HorizontalDivider(
                 thickness = 1.dp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                    alpha = 0.1f
-                )
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
             )
 
+            // --- MIDDLE SCROLLABLE NAVIGATION LIST ---
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -159,289 +159,149 @@ fun AppDrawer(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Group 1
+                // Group 1: Core Financials
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.AccountBalance,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Manage Banks & Wallets",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
+                    icon = { Icon(Icons.Rounded.AccountBalance, contentDescription = null) },
+                    label = { Text("Value Wallets & Banks", fontWeight = FontWeight.Medium) },
                     selected = false,
                     onClick = { },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.PieChart,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Budgets & Limits",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
-                    selected = false,
+                    icon = { Icon(Icons.Rounded.PieChart, contentDescription = null) },
+                    label = { Text("Budgets & Limits", fontWeight = FontWeight.Medium) },
+                    selected = activeRoute == SidebarScreen.BUDGET,
                     onClick = {
                         closeDrawer()
                         onRouteSelected(SidebarScreen.BUDGET)
                     },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Label,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Tags & Categories",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
-                    selected = false,
+                    icon = { Icon(Icons.Rounded.Label, contentDescription = null) },
+                    label = { Text("Tags & Categories", fontWeight = FontWeight.Medium) },
+                    selected = activeRoute == SidebarScreen.CATEGORY,
                     onClick = {
                         closeDrawer()
                         onRouteSelected(SidebarScreen.CATEGORY)
                     },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Repeat,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Recurring Payments",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
-                    selected = false,
+                    icon = { Icon(Icons.Rounded.Repeat, contentDescription = null) },
+                    label = { Text("Recurring Payments", fontWeight = FontWeight.Medium) },
+                    selected = activeRoute == SidebarScreen.RECURRING,
                     onClick = {
                         closeDrawer()
                         onRouteSelected(SidebarScreen.RECURRING)
                     },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 4.dp),
                     thickness = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                        alpha = 0.1f
-                    )
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
                 )
 
-                // Group 2
+                // Group 2: Personalization
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Palette,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Theme & Design",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
-                    selected = false,
+                    icon = { Icon(Icons.Rounded.Palette, contentDescription = null) },
+                    label = { Text("Theme & Design", fontWeight = FontWeight.Medium) },
+                    selected = activeRoute == SidebarScreen.DESIGN,
                     onClick = {
                         closeDrawer()
                         onRouteSelected(SidebarScreen.DESIGN)
                     },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Notifications,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Notifications",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
+                    icon = { Icon(Icons.Rounded.Notifications, contentDescription = null) },
+                    label = { Text("Notifications", fontWeight = FontWeight.Medium) },
                     selected = false,
                     onClick = { },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 4.dp),
                     thickness = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                        alpha = 0.1f
-                    )
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
                 )
 
-                // Group 3
+                // Group 3: Privacy & Data Engines
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Lock,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Privacy & Security",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
+                    icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
+                    label = { Text("Privacy & Security", fontWeight = FontWeight.Medium) },
                     selected = false,
                     onClick = { },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Cloud,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Cloud Backup & Sync",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
+                    icon = { Icon(Icons.Rounded.Cloud, contentDescription = null) },
+                    label = { Text("Cloud Backup & Sync", fontWeight = FontWeight.Medium) },
                     selected = false,
                     onClick = { },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Download,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Export Data",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
+                    icon = { Icon(Icons.Rounded.Download, contentDescription = null) },
+                    label = { Text("Export Data", fontWeight = FontWeight.Medium) },
                     selected = false,
                     onClick = { },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 4.dp),
                     thickness = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                        alpha = 0.1f
-                    )
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
                 )
 
-                // Group 4
+                // Group 4: Support
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Help,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Contact & Support",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
+                    icon = { Icon(Icons.Rounded.Help, contentDescription = null) },
+                    label = { Text("Contact & Support", fontWeight = FontWeight.Medium) },
                     selected = false,
                     onClick = { },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Description,
-                            contentDescription = null
-                        )
-                    },
-                    label = {
-                        Text(
-                            "Terms & Policy",
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
+                    icon = { Icon(Icons.Rounded.Description, contentDescription = null) },
+                    label = { Text("Terms & Policy", fontWeight = FontWeight.Medium) },
                     selected = false,
                     onClick = { },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                        12.dp
-                    ),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // --- FOOTER: VERSION ---
+            // --- BOTTOM FIXED POSITION FOOTER (VERSION ONLY) ---
             HorizontalDivider(
                 thickness = 1.dp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                    alpha = 0.1f
-                )
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
             )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "XpenseMate v1.0",
+                    text = "XpenseMate v1.0",
                     fontSize = 12.sp,
                     color = Color.Gray,
                     fontWeight = FontWeight.Medium

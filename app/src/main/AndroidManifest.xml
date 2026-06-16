@@ -8,6 +8,17 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
+        <package android:name="com.google.android.apps.nbu.paisa.user" /> <package android:name="com.phonepe.app" /> <package android:name="net.one97.paytm" /> <package android:name="in.org.npci.upiapp" /> <package android:name="com.cred.app" /> <package android:name="in.amazon.mShop.android.shopping" />
+    </queries>
 
     <application
         android:allowBackup="false"

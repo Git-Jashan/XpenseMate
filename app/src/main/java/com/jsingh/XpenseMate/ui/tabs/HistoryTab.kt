@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,11 +44,10 @@ import com.jsingh.XpenseMate.ui.components.*
 @Composable
 fun HistoryTab(
     transactions: List<Transaction>,
-    categories: List<String>,                     // 👈 Fixed: Added categories parameter
+    categories: List<String>,
     onUpdateTransaction: (Transaction) -> Unit
 ) {
-
-    var showDatePicker by remember { mutableStateOf(false) }
+    var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var dateFilter by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var activeFilter by remember { mutableStateOf("All") }

@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,10 +78,9 @@ fun AnalyticsTab(
     val currentMonthStr = currentLocalDate.format(DateTimeFormatter.ofPattern("MMM"))
 
     var selectedTimeframe by remember { mutableStateOf("$currentMonthStr $currentYearNum") }
-    var showDatePicker by remember { mutableStateOf(false) }
+    var showDatePicker by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
-    // --- THE DYNAMIC MATH ENGINE ---
     val timeframeExpenses =
         transactions.filter { it.isExpense && it.date.contains(selectedTimeframe) }
     val totalSpent = timeframeExpenses.sumOf { it.amount }

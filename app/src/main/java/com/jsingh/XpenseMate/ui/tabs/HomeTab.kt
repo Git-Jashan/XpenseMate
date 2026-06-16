@@ -51,8 +51,12 @@ import com.jsingh.XpenseMate.ui.components.*
 
 @Composable
 fun HomeTab(
-    transactions: List<Transaction>, subscriptions: List<Subscriptions>, dailyLimit: Double,
-    monthlyLimit: Double
+    transactions: List<Transaction>,
+    subscriptions: List<Subscriptions>,
+    dailyLimit: Double,
+    monthlyLimit: Double,
+    onAddManualClick: () -> Unit,
+    onPayAnyoneClick: () -> Unit
 ) {
 
 
@@ -98,14 +102,13 @@ fun HomeTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // --- TOP CARD: DAILY SPENDING ---
         Surface(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(all = 20.dp)) {
-                Text("Daily Spending", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text("Daily Spending", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -145,7 +148,6 @@ fun HomeTab(
             }
         }
 
-        // --- MIDDLE ROW: DONUT CHART & ACTION CARDS ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -158,14 +160,14 @@ fun HomeTab(
                     .height(160.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         "Monthly Spending",
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -201,57 +203,56 @@ fun HomeTab(
                     .height(160.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. Static Category Button
                 Surface(
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .clickable { onPayAnyoneClick() }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            painterResource(id = R.drawable.ic_category),
+                            painterResource(id = R.drawable.cash_register),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(39.dp)
                         )
-                        Spacer(modifier = Modifier.width(14.dp))
+                        Spacer(modifier = Modifier.width(18.dp))
                         Text(
-                            "Category\nSpending",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
+                            "Pay\nAnyone",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
                             lineHeight = 16.sp
                         )
                     }
                 }
 
-                // 2. Static Analyze Savings Button
                 Surface(
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .clickable { /* Open PopUp */ }
+                        .fillMaxWidth(),
+                        onClick = onAddManualClick
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            painterResource(id = R.drawable.ic_savings),
+                            painterResource(id = R.drawable.cash_register),
                             contentDescription = null,
-                            tint = safeColor,
-                            modifier = Modifier.size(28.dp)
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(39.dp)
                         )
-                        Spacer(modifier = Modifier.width(14.dp))
+                        Spacer(modifier = Modifier.width(18.dp))
                         Text(
-                            "Analyze\nSavings",
-                            fontSize = 14.sp,
+                            "Manual\nEntry",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             lineHeight = 16.sp
                         )

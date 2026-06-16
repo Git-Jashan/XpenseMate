@@ -22,7 +22,7 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
     fun getAllTransactions(): Flow<List<Transaction>>
 
-    // 🚀 Deletes a specific transaction from the database
+    // Deletes a specific transaction from the database
     @Delete
     suspend fun deleteTransaction(transaction: Transaction)
 
@@ -41,7 +41,15 @@ interface TransactionDao {
     suspend fun getHistoricalPaymentCount(merchant: String, amount: Double): Int
 
     // 4. THE DEDUPLICATOR (Updated with Merchant Check)
-    // Looks for a transaction with the exact same amount, type, AND merchant in the last X milliseconds
     @Query("SELECT * FROM transactions WHERE amount = :amount AND isExpense = :isExpense AND merchantName = :merchant AND timestamp >= :timeWindow LIMIT 1")
     suspend fun findDuplicate(amount: Double, isExpense: Boolean, merchant: String, timeWindow: Long): Transaction?
+
+    // 🚀 --- SMART CACHE WIPE COMMANDS --- 🚀
+    // Completely obliterates all local transactions for user switching
+    @Query("DELETE FROM transactions")
+    suspend fun nukeTransactions()
+
+    // Completely obliterates the offline queue so old users' data doesn't sync to the new user
+    @Query("DELETE FROM pending_transactions")
+    suspend fun nukePendingTransactions()
 }

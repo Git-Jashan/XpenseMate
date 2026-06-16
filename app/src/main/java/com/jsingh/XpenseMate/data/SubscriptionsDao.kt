@@ -28,4 +28,9 @@ interface SubscriptionsDao {
     // When a user cancels a subscription in the UI
     @Query("UPDATE subscriptions SET isActive = 0 WHERE id = :subId")
     suspend fun cancelSubscription(subId: Int)
+
+    // 🚀 --- SMART CACHE WIPE COMMAND --- 🚀
+    // Completely obliterates all local subscriptions for user switching
+    @Query("DELETE FROM subscriptions")
+    suspend fun nukeSubscriptions()
 }

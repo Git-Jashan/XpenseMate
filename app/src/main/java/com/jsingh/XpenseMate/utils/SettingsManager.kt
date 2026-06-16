@@ -4,6 +4,7 @@ import android.content.Context
 
 object SettingsManager {
     private const val PREFS_NAME = "xpensemate_settings"
+    private const val KEY_LAST_USER = "LAST_USER_ID"
 
     fun saveBudgets(context: Context, daily: Float, monthly: Float) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -49,5 +50,15 @@ object SettingsManager {
             val parts = it.split("|")
             if (parts.size == 2) parts[0] to (parts[1].toFloatOrNull() ?: 0f) else null
         }.toMap()
+    }
+
+    fun saveLastUserId(context: Context, userId: String) {
+        val prefs = context.getSharedPreferences("xpense_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("LAST_USER_ID", userId).apply()
+    }
+
+    fun getLastUserId(context: Context): String? {
+        val prefs = context.getSharedPreferences("xpense_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("LAST_USER_ID", null)
     }
 }

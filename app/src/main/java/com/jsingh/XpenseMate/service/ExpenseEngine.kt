@@ -14,11 +14,10 @@ import androidx.work.Constraints
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import com.jsingh.XpenseMate.data.AiStatementResult
-import com.jsingh.XpenseMate.data.AiTransactionResult
 import com.jsingh.XpenseMate.BuildConfig
-import com.jsingh.XpenseMate.data.PendingTransaction
-import com.jsingh.XpenseMate.data.Transaction
+import com.jsingh.XpenseMate.network.SupabaseNetwork
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -46,7 +45,6 @@ object ExpenseEngine {
     private const val WORKER_URL = "https://xpensemate-parser.jashanjeetsingh5050.workers.dev/"
     private const val WORKER_SECRET = BuildConfig.WORKER_SECRET
 
-    // 🚀 Optimized timeouts for massive 70B AI processing
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -61,10 +59,10 @@ object ExpenseEngine {
 
     fun processTransaction(
         context: Context,
-        rawText: String,        // Changed to rawText for consistency
-        appName: String,        // e.g., "GPay" or "SMS"
-        paymentMode: String,    // e.g., "UPI" or "Bank"
-        timestamp: Long,        // Added the missing comma right after this!
+        rawText: String,
+        appName: String,
+        paymentMode: String,
+        timestamp: Long,
         onResult: ((List<Transaction>?) -> Unit)? = null
     ) {
         if (appContext == null) appContext = context.applicationContext
@@ -92,7 +90,7 @@ object ExpenseEngine {
 
             val contextString = when (source) {
                 "SCREENSHOT" -> "UPI App Screenshot"
-                "NOTIFICATION" -> "Android Payment Notification from $appName" // 👈 Added appName here
+                "NOTIFICATION" -> "Android Payment Notification from $appName"
                 "SMS" -> "SMS from ${extractAccountDigits(originalRawMessage)}"
                 "STATEMENT" -> "PDF Bank Statement"
                 else -> "Unknown Source"
@@ -103,8 +101,8 @@ object ExpenseEngine {
             val jsonBody = JSONObject().apply {
                 put("sms_text", cleanMessage)
                 put("source", source)
-                put("app_name", appName)         // 👈 Added this
-                put("payment_mode", paymentMode) // 👈 Added this
+                put("app_name", appName)
+                put("payment_mode", paymentMode)
                 put("categories", JSONArray(userCategories))
                 put("app_context", contextString)
                 put("current_device_date", currentDateForAI)
@@ -163,9 +161,9 @@ object ExpenseEngine {
                             transactionType = aiTxn.type ?: "UNKNOWN",
                             account = aiTxn.paymentMode ?: "Bank Statement",
                             source = "STATEMENT",
-                            phoneNumber = "---" // Statements rarely have these
+                            phoneNumber = "---"
                         )
-                        saveTransaction(newTxn)
+                        saveTransaction(newTxn) // 👈 This calls our updated save function which includes Supabase!
                         savedCount++
                     }
                 }
@@ -176,8 +174,7 @@ object ExpenseEngine {
                 }
 
             } else {
-                // NORMAL SCREENSHOT / SMS / NOTIFICATION
-                val aiResult = jsonParser.decodeFromString<AiTransactionResult>(responseText)
+                 val aiResult = jsonParser.decodeFromString<AiTransactionResult>(responseText)
 
                 val safeAmount = aiResult.amount ?: 0.0
                 val safeMerchant = aiResult.merchant ?: "Unknown"
@@ -188,14 +185,9 @@ object ExpenseEngine {
                 if (aiResult.isValid && safeAmount > 0) {
                     val trueDate = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDateTime()
 
-                    // 🚀 1. EXTRACT LOCAL DATA
                     val localAcct = extractAccountDigits(originalRawMessage)
                     val localPhone = try { extractPhoneNumber(originalRawMessage) } catch (e: Exception) { "---" }
-
-                    // 🚀 2. STRICT ACCOUNT FIELD (Only digits, otherwise blank)
                     val finalAccount = if (localAcct != "BANK" && localAcct != "---") "Acct: $localAcct" else "---"
-
-                    // 🚀 3. STRICT PAYMENT MODE & MERCHANT
                     val finalPaymentMode = if (paymentMode != "Bank" && paymentMode != "Unknown") paymentMode.uppercase() else (aiResult.paymentMode?.uppercase() ?: "UNKNOWN")
                     val finalMerchant = if (safeMerchant == "Unknown" && localPhone != "---") localPhone else safeMerchant
 
@@ -208,15 +200,12 @@ object ExpenseEngine {
                         time = trueDate.format(DateTimeFormatter.ofPattern("hh:mm a")),
                         timestamp = timestamp,
                         merchantName = finalMerchant,
-
-                        // 🚀 4. THE PERFECT UI MAPPING
-                        transactionType = finalPaymentMode, // e.g., "UPI"
-                        account = finalAccount,             // e.g., "Acct: 1234" or "---"
-                        phoneNumber = localPhone,           // e.g., "9988037403" or "---"
-                        source = if (source == "NOTIFICATION") "Notification: $appName" else source                 // e.g., "SCREENSHOT"
+                        transactionType = finalPaymentMode,
+                        account = finalAccount,
+                        phoneNumber = localPhone,
+                        source = if (source == "NOTIFICATION") "Notification: $appName" else source
                     )
 
-                    // 🚀 5. THE CONFIDENCE ROUTER
                     val aiConfidence = aiResult.confidence ?: 100.0
 
                     if (source == "SCREENSHOT" || aiConfidence < 85.0) {
@@ -225,33 +214,30 @@ object ExpenseEngine {
                             onResult?.invoke(listOf(newTxn))
                         }
                     } else {
-                        // 🚀 6. THE AUTO-SAVE & SUBSCRIPTION DETECTOR
-                        CoroutineScope(Dispatchers.IO).launch {
+                       CoroutineScope(Dispatchers.IO).launch {
                             try {
                                 val db = AppDatabase.getDatabase(context)
                                 val dao = db.transactionDao()
-                                val subDao = db.subscriptionDao() // 👈 Added Subscriptions DAO
+                                val subDao = db.subscriptionDao()
 
-                                // Block duplicates within 2 minutes
                                 val timeWindow = System.currentTimeMillis() - 120_000
                                 if (dao.findDuplicate(newTxn.amount, newTxn.isExpense, newTxn.merchantName, timeWindow) != null) {
                                     return@launch
                                 }
 
-                                dao.insertTransaction(newTxn)
-                                Log.d("XpenseMate_Engine", "💾 SAVED SUCCESS → ₹${newTxn.amount}")
+                               dao.insertTransaction(newTxn)
+                                Log.d("XpenseMate_Engine", "💾 SAVED LOCAL SUCCESS → ₹${newTxn.amount}")
 
-                                // 🚀 THE NEW SUBSCRIPTION BRIDGE
+                               uploadTransactionToSupabase(newTxn)
+
+                                // 3. Subscription Bridge
                                 if (newTxn.isExpense) {
                                     val activeSub = subDao.getSubscriptionByMerchant(newTxn.merchantName)
 
                                     if (activeSub != null) {
-                                        // 🔄 Known Subscription: Auto-Renew it!
                                         val newDueDate = calculateNextDueDate(activeSub.nextDueDate, activeSub.frequency)
                                         subDao.updateNextDueDate(activeSub.id, newDueDate)
-                                        Log.d("XpenseMate_Engine", "🔄 Auto-Renewed: ${activeSub.merchant}. Next due: $newDueDate")
                                     } else {
-                                        // 🧐 Not known: Check if we should suggest it
                                         val pastPayments = dao.getHistoricalPaymentCount(newTxn.merchantName, newTxn.amount)
                                         if (pastPayments >= 1) {
                                             sendSubscriptionNotification(context, newTxn.merchantName, newTxn.amount)
@@ -282,10 +268,10 @@ object ExpenseEngine {
                 saveToOfflineQueue(contextToUse, cleanMessage, appName, paymentMode, timestamp)
             }
             withContext(Dispatchers.Main) { onResult?.invoke(null) }
-            }
+        }
     }
 
-     fun saveTransaction(txn: Transaction) {
+    fun saveTransaction(txn: Transaction) {
         val context = appContext ?: return
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -298,11 +284,44 @@ object ExpenseEngine {
                 }
 
                 dao.insertTransaction(txn)
-                Log.d("XpenseMate_Engine", "💾 SAVED SUCCESS → ₹${txn.amount}")
+                Log.d("XpenseMate_Engine", "💾 SAVED LOCAL SUCCESS → ₹${txn.amount}")
+
+               uploadTransactionToSupabase(txn)
 
             } catch (e: Exception) {
                 Log.e("XpenseMate_Engine", "🚨 DATABASE WRITE FAILED: ${e.message}")
             }
+        }
+    }
+
+    private suspend fun uploadTransactionToSupabase(txn: Transaction) {
+        try {
+           var session = SupabaseNetwork.client.auth.currentSessionOrNull()
+
+           if (session == null) {
+                SupabaseNetwork.client.auth.awaitInitialization()
+                session = SupabaseNetwork.client.auth.currentSessionOrNull()
+            }
+
+            if (session == null) {
+                Log.e("XpenseMate_Engine", "☁️ Could not upload: Token missing.")
+                return
+            }
+
+            val uploadDto = TransactionDto(
+                user_id = session.user?.id,
+                merchantName = txn.merchantName,
+                amount = txn.amount,
+                isExpense = txn.isExpense,
+                category = txn.category,
+                source = txn.source
+            )
+
+            SupabaseNetwork.client.postgrest["transactions"].insert(uploadDto)
+            Log.d("XpenseMate_Engine", "☁️ CLOUD SYNC SUCCESS → ₹${txn.amount}")
+
+        } catch (e: Exception) {
+            Log.e("XpenseMate_Engine", "🚨 CLOUD SYNC FAILED: ${e.message}")
         }
     }
 
@@ -322,7 +341,6 @@ object ExpenseEngine {
         return Regex("\\b\\d{10}\\b").find(message)?.value ?: "---"
     }
 
-    // 🚀 Moved safely inside the ExpenseEngine object!
     private fun sendSubscriptionNotification(context: Context, merchant: String, amount: Double) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "subscription_alerts"
@@ -344,27 +362,25 @@ object ExpenseEngine {
 
         manager.notify(merchant.hashCode(), notification)
     }
-private suspend fun saveToOfflineQueue(context: Context, text: String, appName: String, mode: String, time: Long) {
-    Log.d("XpenseMate_Engine", "⚠️ No Internet! Saving transaction to Offline Queue.")
-    val db = AppDatabase.getDatabase(context)
-    db.transactionDao().insertPending(PendingTransaction(0, text, appName, mode, time))
 
-    // Tell Android to run SyncWorker the second the internet comes back!
-    val constraints = Constraints.Builder()
-        .setRequiredNetworkType(NetworkType.CONNECTED)
-        .build()
+    private suspend fun saveToOfflineQueue(context: Context, text: String, appName: String, mode: String, time: Long) {
+        Log.d("XpenseMate_Engine", "⚠️ No Internet! Saving transaction to Offline Queue.")
+        val db = AppDatabase.getDatabase(context)
+        db.transactionDao().insertPending(PendingTransaction(0, text, appName, mode, time))
 
-    val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
-        .setConstraints(constraints)
-        .build()
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
 
-    WorkManager.getInstance(context).enqueue(syncRequest)
+        val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(context).enqueue(syncRequest)
     }
-    // 🚀 Time Math for Subscriptions
+
     private fun calculateNextDueDate(currentDueDate: Long, frequency: String): Long {
         val calendar = Calendar.getInstance()
-
-        // If they missed a payment and it's way past due, base the next date off TODAY
         val baseDate = if (currentDueDate < System.currentTimeMillis()) System.currentTimeMillis() else currentDueDate
         calendar.timeInMillis = baseDate
 
@@ -373,7 +389,7 @@ private suspend fun saveToOfflineQueue(context: Context, text: String, appName: 
             "YEARLY" -> calendar.add(Calendar.YEAR, 1)
             "WEEKLY" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
             "QUARTERLY" -> calendar.add(Calendar.MONTH, 3)
-            else -> calendar.add(Calendar.MONTH, 1) // Default fallback
+            else -> calendar.add(Calendar.MONTH, 1)
         }
         return calendar.timeInMillis
     }
