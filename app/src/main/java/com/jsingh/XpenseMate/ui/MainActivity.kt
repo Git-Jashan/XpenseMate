@@ -16,122 +16,145 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.MediaStore
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.jsingh.XpenseMate.SidebarScreen
 import com.jsingh.XpenseMate.data.AppDatabase
 import com.jsingh.XpenseMate.data.Transaction
+import com.jsingh.XpenseMate.network.SupabaseNetwork
 import com.jsingh.XpenseMate.service.ExpenseEngine
-import com.jsingh.XpenseMate.ui.components.AppBottomBar
-import com.jsingh.XpenseMate.ui.components.AppDrawer
-import com.jsingh.XpenseMate.ui.components.LoginScreen
-import com.jsingh.XpenseMate.ui.components.ManualUpiInputDialog
-import com.jsingh.XpenseMate.ui.components.PermissionScreen
-import com.jsingh.XpenseMate.ui.components.QrScannerDialog
-import com.jsingh.XpenseMate.ui.components.TransactionDetailsCard
-import com.jsingh.XpenseMate.ui.components.TransactionPopup
-import com.jsingh.XpenseMate.ui.components.UpiPaymentDialog
-import com.jsingh.XpenseMate.ui.sidebar.AccountDialog
-import com.jsingh.XpenseMate.ui.sidebar.BudgetSettingsView
-import com.jsingh.XpenseMate.ui.sidebar.CategorySettingsView
-import com.jsingh.XpenseMate.ui.sidebar.DesignSettingsView
-import com.jsingh.XpenseMate.ui.sidebar.RecurringPaymentsView
-import com.jsingh.XpenseMate.ui.tabs.AccountsTab
-import com.jsingh.XpenseMate.ui.tabs.AnalyticsTab
-import com.jsingh.XpenseMate.ui.tabs.HistoryTab
-import com.jsingh.XpenseMate.ui.tabs.HomeTab
+import com.jsingh.XpenseMate.service.ParseResult
+import com.jsingh.XpenseMate.service.TransactionRequest
+import com.jsingh.XpenseMate.service.TransactionSource
+import com.jsingh.XpenseMate.ui.components.*
+import com.jsingh.XpenseMate.ui.sidebar.*
+import com.jsingh.XpenseMate.ui.tabs.*
 import com.jsingh.XpenseMate.ui.theme.XpenseMateTheme
+import com.jsingh.XpenseMate.utils.PermissionRouter
+import com.jsingh.XpenseMate.utils.SecurityManager
 import com.jsingh.XpenseMate.utils.ThemeManager
 import com.jsingh.XpenseMate.viewmodel.HomeViewModel
 import com.jsingh.XpenseMate.viewmodel.HomeViewModelFactory
-import com.jsingh.XpenseMate.network.SupabaseNetwork
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import com.jsingh.XpenseMate.SidebarScreen
 
-class MainActivity : ComponentActivity() {
+import com.jsingh.XpenseMate.utils.SubscriptionDetector
+
+class MainActivity : FragmentActivity() {
 
     private val db by lazy { AppDatabase.getDatabase(applicationContext) }
+
     private var pendingSharedTransaction by mutableStateOf<Transaction?>(null)
     private var pendingPdfUri by mutableStateOf<Uri?>(null)
     private var showPdfPasswordDialog by mutableStateOf(false)
 
+    private var showPostPurchaseDialog by mutableStateOf(false)
+    private var recentAppName by mutableStateOf("")
+    private var wentToUpi by mutableStateOf(false)
+    private var shouldOpenAddDialog by mutableStateOf(false)
+
+    private var prefillTitle by mutableStateOf("")
+    private var prefillCategory by mutableStateOf("General")
+
+    private fun handleWatchDogIntent(intent: Intent?) {
+        intent?.let {
+            if (it.getBooleanExtra("SHOW_POST_PURCHASE_DIALOG", false)) {
+                recentAppName = it.getStringExtra("RECENT_APP_NAME") ?: "an app"
+                wentToUpi = it.getBooleanExtra("WENT_TO_UPI", false)
+                showPostPurchaseDialog = true
+                it.removeExtra("SHOW_POST_PURCHASE_DIALOG")
+            }
+            if (it.getBooleanExtra("SHOW_ADD_TRANSACTION", false)) {
+                prefillTitle = it.getStringExtra("PREFILL_TITLE") ?: ""
+                prefillCategory = it.getStringExtra("PREFILL_CATEGORY") ?: "General"
+                shouldOpenAddDialog = true
+                it.removeExtra("SHOW_ADD_TRANSACTION")
+                it.removeExtra("PREFILL_TITLE")
+                it.removeExtra("PREFILL_CATEGORY")
+            }
+        }
+    }
+
+    private fun handleShareIntent(currentIntent: Intent?) {
+        if (currentIntent?.action == Intent.ACTION_SEND) {
+            if (currentIntent.type?.startsWith("image/") == true) {
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    currentIntent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    currentIntent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                }
+                if (uri != null) processSharedImage(this, uri)
+            } else if (currentIntent.type == "application/pdf") {
+                val pdfUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    currentIntent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    currentIntent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                }
+                if (pdfUri != null) {
+                    pendingPdfUri = pdfUri
+                    showPdfPasswordDialog = true
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val securityPrefs = getSharedPreferences("SecurityPrefs", Context.MODE_PRIVATE)
+        if (securityPrefs.getBoolean("secure_display", false)) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        }
 
         PDFBoxResourceLoader.init(applicationContext)
         enableEdgeToEdge()
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(
-                    Manifest.permission.RECEIVE_SMS,
-                    Manifest.permission.READ_SMS
-                ),
-                101
-            )
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS), 101)
         }
 
         handleShareIntent(intent)
+        handleWatchDogIntent(intent)
 
         setContent {
             val context = LocalContext.current
             val app = context.applicationContext as android.app.Application
-
             val appDatabase = AppDatabase.getDatabase(app)
             val homeViewModel: HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
                 factory = HomeViewModelFactory(
@@ -141,15 +164,20 @@ class MainActivity : ComponentActivity() {
                 )
             )
 
+            LaunchedEffect(shouldOpenAddDialog) {
+                if (shouldOpenAddDialog) {
+                    homeViewModel.updateAddDialogState(true)
+                    shouldOpenAddDialog = false
+                }
+            }
+
             val lifecycleOwner = LocalLifecycleOwner.current
             val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
 
-            var hasNotifPermission by remember {
-                mutableStateOf(NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName))
-            }
-            var hasBatteryExemption by remember {
-                mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
-            }
+            var hasNotifPermission by remember { mutableStateOf(NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)) }
+            var hasBatteryExemption by remember { mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName)) }
+            var hasUsageAccess by remember { mutableStateOf(PermissionRouter.hasUsageStatsPermission(context)) }
+            var hasOverlayAccess by remember { mutableStateOf(PermissionRouter.hasOverlayPermission(context)) }
             var userFinishedSetup by rememberSaveable { mutableStateOf(false) }
 
             DisposableEffect(lifecycleOwner) {
@@ -157,6 +185,8 @@ class MainActivity : ComponentActivity() {
                     if (event == Lifecycle.Event.ON_RESUME) {
                         hasNotifPermission = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
                         hasBatteryExemption = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                        hasUsageAccess = PermissionRouter.hasUsageStatsPermission(context)
+                        hasOverlayAccess = PermissionRouter.hasOverlayPermission(context)
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
@@ -167,287 +197,430 @@ class MainActivity : ComponentActivity() {
 
             XpenseMateTheme(darkTheme = isDarkMode) {
 
-                val needsPermissions = !hasNotifPermission || !hasBatteryExemption
-
-                // 🚀 THE FIX: Listen directly to Supabase's live memory!
+                val needsPermissions = !hasNotifPermission || !hasBatteryExemption || !hasUsageAccess || !hasOverlayAccess
                 val sessionStatus by SupabaseNetwork.client.auth.sessionStatus.collectAsState()
 
-                when (sessionStatus) {
+                var isUnlocked by remember { mutableStateOf(!SecurityManager.isAppLockEnabled(context)) }
+                var showQuickAddWhileLocked by rememberSaveable { mutableStateOf(false) }
 
-                    // STATE 1: Reading the Hard Drive
-                    is SessionStatus.Initializing -> {
-                        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                var pendingSuggestedMerchant by remember { mutableStateOf("") }
+                var pendingSuggestedAmount by remember { mutableDoubleStateOf(0.0) }
+                var showRecurringSuggestion by remember { mutableStateOf(false) }
+
+                var showAddSubscriptionDialog by rememberSaveable { mutableStateOf(false) }
+                var prefillSubMerchant by rememberSaveable { mutableStateOf("") }
+                var prefillSubAmount by rememberSaveable { mutableDoubleStateOf(0.0) }
+
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP) {
+                            SecurityManager.saveBackgroundTime(context)
+                        } else if (event == Lifecycle.Event.ON_START) {
+                            if (SecurityManager.shouldLockOnReturn(context)) {
+                                isUnlocked = false
+                            }
                         }
                     }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
 
-                    // STATE 2: Found the Saved Wristband!
-                    is SessionStatus.Authenticated -> {
+                if (!isUnlocked) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LockScreenView(
+                            onUnlockSuccess = { isUnlocked = true },
+                            onQuickAddClick = { showQuickAddWhileLocked = true }
+                        )
 
-                        // Check if they still need to do the setup permissions
-                        if (needsPermissions && !userFinishedSetup) {
-                            PermissionScreen(
-                                hasNotifPermission = hasNotifPermission,
-                                hasBatteryExemption = hasBatteryExemption,
-                                onFinish = { userFinishedSetup = true }
-                            )
-                        } else {
-                            // --- THE MAIN DASHBOARD ---
-                            var showQrScanner by rememberSaveable { mutableStateOf(false) }
-                            val cameraPermissionLauncher = rememberLauncherForActivityResult(
-                                contract = ActivityResultContracts.RequestPermission()
-                            ) { isGranted ->
-                                if (isGranted) showQrScanner = true
-                                else Toast.makeText(context, "Camera required for QR", Toast.LENGTH_SHORT).show()
-                            }
+                        if (showQuickAddWhileLocked) {
+                            TransactionPopup(
+                                initialTitle = "",
+                                initialCategory = "General",
+                                categories = homeViewModel.categories.collectAsState().value,
+                                onDismiss = { showQuickAddWhileLocked = false },
+                                onSave = { savedTitle, savedAmount, savedIsExpense, savedCategory ->
+                                    val now = java.time.LocalDateTime.now()
+                                    val dateFormatter = java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")
+                                    val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a")
+                                    val amountDouble = savedAmount.toDoubleOrNull() ?: 0.0
 
-                            var selectedItem by rememberSaveable { mutableIntStateOf(0) }
-                            var activeSidebarScreen by rememberSaveable { mutableStateOf<SidebarScreen?>(null) }
-                            val showAddDialog by homeViewModel.showAddDialog.collectAsState()
-                            val dailyLimit by homeViewModel.dailyLimit.collectAsState()
-                            val monthlyLimit by homeViewModel.monthlyLimit.collectAsState()
-                            val categories by homeViewModel.categories.collectAsState()
-                            val categoryLimits by homeViewModel.categoryLimits.collectAsState()
-                            val mySubscriptions by homeViewModel.subscriptions.collectAsState()
-                            val transactions by homeViewModel.transactions.collectAsState()
-                            val coroutineScope = rememberCoroutineScope()
+                                    homeViewModel.saveTransaction(savedTitle, amountDouble, savedIsExpense, savedCategory, now.format(dateFormatter), now.format(timeFormatter))
+                                    showQuickAddWhileLocked = false
 
-                            var showPaymentSheet by rememberSaveable { mutableStateOf(false) }
-                            var showConfirmationDialog by remember { mutableStateOf(false) }
-                            var pendingAmount by remember { mutableDoubleStateOf(0.0) }
-                            var pendingName by remember { mutableStateOf("") }
-                            var lastAttemptedVpa by remember { mutableStateOf("") }
-                            var lastAttemptedAmount by remember { mutableDoubleStateOf(0.0) }
-
-                            var scannedMerchantName by rememberSaveable { mutableStateOf("") }
-                            var scannedMerchantVpa by rememberSaveable { mutableStateOf("") }
-                            var scannedAmount by rememberSaveable { mutableStateOf("") }
-                            var showManualUpiInput by remember { mutableStateOf(false) }
-                            var scannedMerchantCode by remember { mutableStateOf("") }
-
-                            val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-                            val userEmail by homeViewModel.currentUserEmail.collectAsState()
-
-                            val showAccountDialog by homeViewModel.showAccountDialog.collectAsState()
-
-                            if (showAccountDialog) {
-                                AccountDialog(
-                                    userEmail = userEmail,
-                                    transactionCount = transactions.size,
-                                    onDismiss = { homeViewModel.updateAccountDialogState(false) },
-                                    onLogoutClick = {
-                                        // 🚀 Logout triggers the listener to automatically flip back to LoginScreen
-                                        homeViewModel.logOut { }
+                                    val currentTxns = homeViewModel.transactions.value
+                                    if (SubscriptionDetector.isLikelyRecurring(savedTitle, amountDouble, currentTxns)) {
+                                        pendingSuggestedMerchant = savedTitle
+                                        pendingSuggestedAmount = amountDouble
+                                        showRecurringSuggestion = true
+                                    } else {
+                                        Toast.makeText(context, "Expense logged securely! 🔒", Toast.LENGTH_SHORT).show()
                                     }
-                                )
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    when (sessionStatus) {
+                        is SessionStatus.Initializing -> {
+                            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                             }
+                        }
 
-                            ModalNavigationDrawer(
-                                drawerState = drawerState,
-                                drawerContent = {
-                                    AppDrawer(
-                                        activeRoute = activeSidebarScreen,
+                        is SessionStatus.Authenticated -> {
+                            if (needsPermissions && !userFinishedSetup) {
+                                PermissionScreen(
+                                    hasNotifPermission = hasNotifPermission,
+                                    hasBatteryExemption = hasBatteryExemption,
+                                    onFinish = { userFinishedSetup = true }
+                                )
+                            } else {
+                                LaunchedEffect(Unit) {
+                                    try {
+                                        val serviceIntent = Intent(context, com.jsingh.XpenseMate.service.BudgetWatchdogService::class.java)
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            context.startForegroundService(serviceIntent)
+                                        } else {
+                                            context.startService(serviceIntent)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("XpenseMate", "Failed to auto-start WatchDog", e)
+                                    }
+                                }
+
+                                var showQrScanner by rememberSaveable { mutableStateOf(false) }
+                                var selectedItem by rememberSaveable { mutableIntStateOf(0) }
+                                var activeSidebarScreen by rememberSaveable { mutableStateOf<SidebarScreen?>(null) }
+
+                                val showAddDialog by homeViewModel.showAddDialog.collectAsState()
+                                val dailyLimit by homeViewModel.dailyLimit.collectAsState()
+                                val monthlyLimit by homeViewModel.monthlyLimit.collectAsState()
+                                val categories by homeViewModel.categories.collectAsState()
+                                val categoryLimits by homeViewModel.categoryLimits.collectAsState()
+                                val mySubscriptions by homeViewModel.subscriptions.collectAsState()
+                                val transactions by homeViewModel.transactions.collectAsState()
+                                val coroutineScope = rememberCoroutineScope()
+
+                                var showPaymentSheet by rememberSaveable { mutableStateOf(false) }
+                                var showConfirmationDialog by remember { mutableStateOf(false) }
+                                var pendingAmount by remember { mutableDoubleStateOf(0.0) }
+                                var pendingName by remember { mutableStateOf("") }
+                                var lastAttemptedVpa by remember { mutableStateOf("") }
+                                var lastAttemptedAmount by remember { mutableDoubleStateOf(0.0) }
+
+                                var scannedMerchantName by rememberSaveable { mutableStateOf("") }
+                                var scannedMerchantVpa by rememberSaveable { mutableStateOf("") }
+                                var scannedAmount by rememberSaveable { mutableStateOf("") }
+                                var showManualUpiInput by remember { mutableStateOf(false) }
+                                var scannedMerchantCode by remember { mutableStateOf("") }
+
+                                val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+                                val userEmail by homeViewModel.currentUserEmail.collectAsState()
+                                val showAccountDialog by homeViewModel.showAccountDialog.collectAsState()
+
+                                androidx.activity.compose.BackHandler(enabled = activeSidebarScreen != null || drawerState.isOpen) {
+                                    if (drawerState.isOpen) {
+                                        coroutineScope.launch { drawerState.close() }
+                                    } else if (activeSidebarScreen != null) {
+                                        activeSidebarScreen = null
+                                    }
+                                }
+
+                                if (showAccountDialog) {
+                                    AccountDialog(
                                         userEmail = userEmail,
-                                        onRouteSelected = { route -> activeSidebarScreen = route },
-                                        onAccountClick = { homeViewModel.updateAccountDialogState(true) },
-                                        closeDrawer = { coroutineScope.launch { drawerState.close() } }
+                                        transactionCount = transactions.size,
+                                        onDismiss = { homeViewModel.updateAccountDialogState(false) },
+                                        onLogoutClick = { homeViewModel.logOut { } }
                                     )
                                 }
-                            ){
-                                @OptIn(ExperimentalMaterial3Api::class)
-                                Scaffold(
-                                    modifier = Modifier.fillMaxSize(),
-                                    topBar = {
-                                        TopAppBar(
-                                            colors = TopAppBarDefaults.topAppBarColors(
-                                                containerColor = MaterialTheme.colorScheme.background,
-                                                titleContentColor = MaterialTheme.colorScheme.primary,
-                                                navigationIconContentColor = MaterialTheme.colorScheme.primary
-                                            ),
-                                            title = { Text("XpenseMate", fontSize = 22.sp, fontWeight = FontWeight.SemiBold) },
-                                            navigationIcon = {
-                                                IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
-                                                    Icon(Icons.Rounded.Menu, contentDescription = "Menu")
-                                                }
-                                            }
-                                        )
-                                    },
-                                    bottomBar = {
-                                        AppBottomBar(
-                                            selectedItem = selectedItem,
-                                            onItemSelected = { selectedItem = it },
-                                            onAddClick = {
-                                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                                    showQrScanner = true
-                                                } else {
-                                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                                }
-                                            }
+
+                                ModalNavigationDrawer(
+                                    drawerState = drawerState,
+                                    drawerContent = {
+                                        AppDrawer(
+                                            activeRoute = activeSidebarScreen,
+                                            userEmail = userEmail,
+                                            onRouteSelected = { route -> activeSidebarScreen = route },
+                                            onAccountClick = { homeViewModel.updateAccountDialogState(true) },
+                                            closeDrawer = { coroutineScope.launch { drawerState.close() } }
                                         )
                                     }
-                                ) { innerPadding ->
-                                    Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                                        Box(modifier = Modifier.weight(1f)) {
-
-                                            // Tab Routing
-                                            when (selectedItem) {
-                                                0 -> HomeTab(
-                                                    transactions = transactions,
-                                                    subscriptions = mySubscriptions,
-                                                    dailyLimit = dailyLimit,
-                                                    monthlyLimit = monthlyLimit,
-                                                    onAddManualClick = { homeViewModel.updateAddDialogState(true) },
-                                                    onPayAnyoneClick = { showManualUpiInput = true }
-                                                )
-                                                1 -> HistoryTab(
-                                                    transactions = transactions,
-                                                    categories = categories,
-                                                    onUpdateTransaction = { updatedTx -> homeViewModel.updateTransaction(updatedTx) }
-                                                )
-                                                2 -> AnalyticsTab(
-                                                    transactions = transactions,
-                                                    categoryBudgets = categoryLimits,
-                                                    dailyLimit = dailyLimit.toFloat()
-                                                )
-                                                3 -> AccountsTab()
-                                            }
-
-                                            // Dialogs & Sheets
-                                            if (showQrScanner) {
-                                                QrScannerDialog(
-                                                    onDismiss = { showQrScanner = false },
-                                                    onQrScanned = { name, vpa, mc, amount ->
-                                                        scannedMerchantName = name
-                                                        scannedMerchantVpa = vpa
-                                                        scannedMerchantCode = mc
-                                                        scannedAmount = amount
-                                                        showQrScanner = false
-                                                        showPaymentSheet = true
+                                ){
+                                    @OptIn(ExperimentalMaterial3Api::class)
+                                    Scaffold(
+                                        modifier = Modifier.fillMaxSize(),
+                                        topBar = {
+                                            TopAppBar(
+                                                colors = TopAppBarDefaults.topAppBarColors(
+                                                    containerColor = MaterialTheme.colorScheme.background,
+                                                    titleContentColor = MaterialTheme.colorScheme.primary,
+                                                    navigationIconContentColor = MaterialTheme.colorScheme.primary,
+                                                    actionIconContentColor = MaterialTheme.colorScheme.primary
+                                                ),
+                                                title = { Text("XpenseMate", fontSize = 22.sp, fontWeight = FontWeight.SemiBold) },
+                                                navigationIcon = {
+                                                    IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                                                        Icon(Icons.Rounded.Menu, contentDescription = "Menu")
                                                     }
-                                                )
-                                            }
+                                                }
+                                            )
+                                        },
+                                        bottomBar = {
+                                            AppBottomBar(
+                                                selectedItem = selectedItem,
+                                                onItemSelected = { selectedItem = it; activeSidebarScreen = null },
+                                                onAddManualClick = { homeViewModel.updateAddDialogState(true) }
+                                            )
+                                        }
+                                    ) { innerPadding ->
+                                        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                                            Box(modifier = Modifier.weight(1f)) {
 
-                                            if (showPaymentSheet) {
-                                                UpiPaymentDialog(
-                                                    payeeName = scannedMerchantName,
-                                                    payeeVpa = scannedMerchantVpa,
-                                                    scannedAmount = scannedAmount,
-                                                    merchantCode = scannedMerchantCode,
-                                                    onDismiss = { showPaymentSheet = false },
-                                                    onPaymentAttempted = { finalAmount, finalName, isExplicitSuccess ->
-                                                        showPaymentSheet = false
-                                                        when (isExplicitSuccess) {
-                                                            true -> {
-                                                                val calendar = java.util.Calendar.getInstance()
-                                                                val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(calendar.time)
-                                                                val currentTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(calendar.time)
-                                                                homeViewModel.saveTransaction(finalName, finalAmount, true, "UPI Scan", currentDate, currentTime)
-                                                                Toast.makeText(context, "Logged perfectly!", Toast.LENGTH_SHORT).show()
-                                                            }
-                                                            false -> Toast.makeText(context, "Payment failed in GPay.", Toast.LENGTH_SHORT).show()
-                                                            null -> {
-                                                                if (scannedMerchantVpa == lastAttemptedVpa && finalAmount == lastAttemptedAmount) {
-                                                                    pendingAmount = finalAmount
-                                                                    pendingName = finalName
-                                                                    showConfirmationDialog = true
-                                                                } else {
-                                                                    lastAttemptedVpa = scannedMerchantVpa
-                                                                    lastAttemptedAmount = finalAmount
+                                                when (selectedItem) {
+                                                    0 -> HomeTab(
+                                                        transactions = transactions,
+                                                        subscriptions = mySubscriptions,
+                                                        dailyLimit = dailyLimit,
+                                                        monthlyLimit = monthlyLimit,
+                                                        isIncognito = false,
+                                                        onAddManualClick = { homeViewModel.updateAddDialogState(true) },
+                                                        onPayAnyoneClick = { showManualUpiInput = true },
+                                                        onMarkSubscriptionPaid = { sub -> homeViewModel.markSubscriptionPaid(sub) }
+                                                    )
+                                                    1 -> HistoryTab(
+                                                        transactions = transactions,
+                                                        categories = categories,
+                                                        onUpdateTransaction = { updatedTx -> homeViewModel.updateTransaction(updatedTx) }
+                                                    )
+                                                    2 -> AnalyticsTab(
+                                                        transactions = transactions,
+                                                        categoryBudgets = categoryLimits,
+                                                        dailyLimit = dailyLimit.toFloat()
+                                                    )
+                                                    3 -> AccountsTab()
+                                                }
+
+                                                if (showPostPurchaseDialog) {
+                                                    PostPurchaseDialog(
+                                                        appName = recentAppName,
+                                                        wentToUpi = wentToUpi,
+                                                        onDismiss = { showPostPurchaseDialog = false },
+                                                        onConfirm = {
+                                                            showPostPurchaseDialog = false
+                                                            homeViewModel.updateAddDialogState(true)
+                                                        }
+                                                    )
+                                                }
+
+                                                if (showQrScanner) {
+                                                    QrScannerDialog(
+                                                        onDismiss = { showQrScanner = false },
+                                                        onQrScanned = { name, vpa, mc, amount ->
+                                                            scannedMerchantName = name
+                                                            scannedMerchantVpa = vpa
+                                                            scannedMerchantCode = mc
+                                                            scannedAmount = amount
+                                                            showQrScanner = false
+                                                            showPaymentSheet = true
+                                                        }
+                                                    )
+                                                }
+
+                                                if (showPaymentSheet) {
+                                                    UpiPaymentDialog(
+                                                        payeeName = scannedMerchantName,
+                                                        payeeVpa = scannedMerchantVpa,
+                                                        scannedAmount = scannedAmount,
+                                                        merchantCode = scannedMerchantCode,
+                                                        onDismiss = { showPaymentSheet = false },
+                                                        onPaymentAttempted = { finalAmount, finalName, isExplicitSuccess ->
+                                                            showPaymentSheet = false
+                                                            when (isExplicitSuccess) {
+                                                                true -> {
                                                                     val calendar = java.util.Calendar.getInstance()
                                                                     val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(calendar.time)
                                                                     val currentTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(calendar.time)
                                                                     homeViewModel.saveTransaction(finalName, finalAmount, true, "UPI Scan", currentDate, currentTime)
+                                                                    Toast.makeText(context, "Logged perfectly!", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                                false -> Toast.makeText(context, "Payment failed in GPay.", Toast.LENGTH_SHORT).show()
+                                                                null -> {
+                                                                    if (scannedMerchantVpa == lastAttemptedVpa && finalAmount == lastAttemptedAmount) {
+                                                                        pendingAmount = finalAmount
+                                                                        pendingName = finalName
+                                                                        showConfirmationDialog = true
+                                                                    } else {
+                                                                        lastAttemptedVpa = scannedMerchantVpa
+                                                                        lastAttemptedAmount = finalAmount
+                                                                        val calendar = java.util.Calendar.getInstance()
+                                                                        val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(calendar.time)
+                                                                        val currentTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(calendar.time)
+                                                                        homeViewModel.saveTransaction(finalName, finalAmount, true, "UPI Scan", currentDate, currentTime)
+                                                                    }
                                                                 }
                                                             }
                                                         }
-                                                    }
-                                                )
-                                            }
-
-                                            if (showManualUpiInput) {
-                                                val upiExpenses = transactions.filter { it.isExpense }
-                                                val recentList = upiExpenses.distinctBy { it.title.lowercase().trim() }.take(15).map { com.jsingh.XpenseMate.ui.components.AppContact(it.title, it.title) }
-                                                val frequentList = upiExpenses.groupingBy { it.title.trim() }.eachCount().toList().sortedByDescending { it.second }.take(15).map { com.jsingh.XpenseMate.ui.components.AppContact(it.first, it.first) }
-
-                                                ManualUpiInputDialog(
-                                                    recentContacts = recentList,
-                                                    frequentContacts = frequentList,
-                                                    onDismiss = { showManualUpiInput = false },
-                                                    onContinue = { enteredUpiId ->
-                                                        showManualUpiInput = false
-                                                        scannedMerchantName = "Verify name in UPI App"
-                                                        scannedMerchantVpa = enteredUpiId
-                                                        scannedAmount = ""
-                                                        showPaymentSheet = true
-                                                    }
-                                                )
-                                            }
-
-                                            if (showAddDialog) {
-                                                TransactionPopup(
-                                                    onDismiss = { homeViewModel.updateAddDialogState(false) },
-                                                    categories = categories,
-                                                    onSave = { savedTitle, savedAmount, savedIsExpense, savedCategory ->
-                                                        val now = java.time.LocalDateTime.now()
-                                                        val dateFormatter = java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")
-                                                        val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a")
-                                                        val amountDouble = savedAmount.toDoubleOrNull() ?: 0.0
-                                                        homeViewModel.saveTransaction(savedTitle, amountDouble, savedIsExpense, savedCategory, now.format(dateFormatter), now.format(timeFormatter))
-                                                    }
-                                                )
-                                            }
-
-                                            // Sidebar Routing
-                                            when (activeSidebarScreen) {
-                                                SidebarScreen.BUDGET -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                                                    BudgetSettingsView(dailyLimit.toFloat(), monthlyLimit.toFloat(), categories, categoryLimits, onBackClick = { activeSidebarScreen = null }) { newD, newM, newLimits ->
-                                                        homeViewModel.saveBudgets(newD.toDouble(), newM.toDouble(), newLimits)
-                                                        activeSidebarScreen = null
-                                                    }
+                                                    )
                                                 }
-                                                SidebarScreen.DESIGN -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                                                    DesignSettingsView(isDarkMode, onBackClick = { activeSidebarScreen = null }) { newValue ->
-                                                        ThemeManager.saveTheme(context, newValue)
-                                                        isDarkMode = newValue
-                                                    }
-                                                }
-                                                SidebarScreen.CATEGORY -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                                                    CategorySettingsView(categories, onBackClick = { activeSidebarScreen = null }) { newList -> homeViewModel.saveCategories(newList) }
-                                                }
-                                                SidebarScreen.RECURRING -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                                                    RecurringPaymentsView(mySubscriptions, onBackClick = { activeSidebarScreen = null }, onSaveNew = { m, a, f, b, c -> homeViewModel.addManualSubscription(m, a, f, b, c) }) { subToDelete -> homeViewModel.deleteSubscription(subToDelete.id) }
-                                                }
-                                                null -> {}
-                                            }
 
-                                            // Shared Screenshot Parsing UI
-                                            pendingSharedTransaction?.let { txn ->
-                                                TransactionDetailsCard(
-                                                    transaction = txn,
-                                                    categories = categories,
-                                                    isNew = true,
-                                                    onDismiss = { pendingSharedTransaction = null },
-                                                    onCategoryChange = { finalTxn ->
-                                                        ExpenseEngine.saveTransaction(finalTxn)
-                                                        pendingSharedTransaction = null
+                                                if (showManualUpiInput) {
+                                                    val upiExpenses = transactions.filter { it.isExpense }
+                                                    val recentList = upiExpenses.distinctBy { it.title.lowercase().trim() }.take(15).map { AppContact(it.title, it.title) }
+                                                    val frequentList = upiExpenses.groupingBy { it.title.trim() }.eachCount().toList().sortedByDescending { it.second }.take(15).map { AppContact(it.first, it.first) }
+
+                                                    ManualUpiInputDialog(
+                                                        recentContacts = recentList,
+                                                        frequentContacts = frequentList,
+                                                        onDismiss = { showManualUpiInput = false },
+                                                        onContinue = { enteredUpiId ->
+                                                            showManualUpiInput = false
+                                                            scannedMerchantName = "Verify name in UPI App"
+                                                            scannedMerchantVpa = enteredUpiId
+                                                            scannedAmount = ""
+                                                            showPaymentSheet = true
+                                                        }
+                                                    )
+                                                }
+
+                                                if (showAddDialog) {
+                                                    TransactionPopup(
+                                                        initialTitle = prefillTitle,
+                                                        initialCategory = prefillCategory,
+                                                        onDismiss = {
+                                                            homeViewModel.updateAddDialogState(false)
+                                                            prefillTitle = ""
+                                                            prefillCategory = "General"
+                                                        },
+                                                        categories = categories,
+                                                        onSave = { savedTitle, savedAmount, savedIsExpense, savedCategory ->
+                                                            val now = java.time.LocalDateTime.now()
+                                                            val dateFormatter = java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")
+                                                            val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a")
+                                                            val amountDouble = savedAmount.toDoubleOrNull() ?: 0.0
+                                                            homeViewModel.saveTransaction(savedTitle, amountDouble, savedIsExpense, savedCategory, now.format(dateFormatter), now.format(timeFormatter))
+
+                                                            if (SubscriptionDetector.isLikelyRecurring(savedTitle, amountDouble, transactions)) {
+                                                                pendingSuggestedMerchant = savedTitle
+                                                                pendingSuggestedAmount = amountDouble
+                                                                showRecurringSuggestion = true
+                                                            } else {
+                                                                Toast.makeText(context, "Expense Logged", Toast.LENGTH_SHORT).show()
+                                                            }
+
+                                                            prefillTitle = ""
+                                                            prefillCategory = "General"
+                                                        }
+                                                    )
+                                                }
+
+                                                if (showPdfPasswordDialog && pendingPdfUri != null) {
+                                                    PdfPasswordDialog(
+                                                        context = context,
+                                                        pdfUri = pendingPdfUri!!,
+                                                        onDismiss = { showPdfPasswordDialog = false }
+                                                    )
+                                                }
+
+                                                when (activeSidebarScreen) {
+                                                    SidebarScreen.BUDGET -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                                                        BudgetSettingsView(
+                                                            currentDaily = dailyLimit.toFloat(),
+                                                            currentMonthly = monthlyLimit.toFloat(),
+                                                            categories = categories,
+                                                            currentCategoryLimits = categoryLimits,
+                                                            onBackClick = { activeSidebarScreen = null },
+                                                            onCategoriesUpdated = { newList -> homeViewModel.saveCategories(newList) },
+                                                            onSaveBudgets = { newD, newM, newLimits ->
+                                                                homeViewModel.saveBudgets(newD.toDouble(), newM.toDouble(), newLimits)
+                                                                activeSidebarScreen = null
+                                                            }
+                                                        )
                                                     }
-                                                )
+                                                    SidebarScreen.DESIGN -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                                                        DesignSettingsView(isDarkMode, onBackClick = { activeSidebarScreen = null }) { newValue ->
+                                                            ThemeManager.saveTheme(context, newValue)
+                                                            isDarkMode = newValue
+                                                        }
+                                                    }
+                                                    SidebarScreen.BUDGET_ALERTS -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                                                        BudgetAlertsSettingsView(onBackClick = { activeSidebarScreen = null })
+                                                    }
+                                                    SidebarScreen.RECURRING -> Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                                                        RecurringPaymentsView(mySubscriptions, onBackClick = { activeSidebarScreen = null }, onSaveNew = { m, a, f, b, c -> homeViewModel.addManualSubscription(m, a, f, b, c) }) { subToDelete -> homeViewModel.deleteSubscription(subToDelete.id) }
+                                                    }
+                                                    SidebarScreen.EXPORT -> {
+                                                        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                                                            ExportDataView(transactions = transactions, onBackClick = { activeSidebarScreen = null })
+                                                        }
+                                                    }
+                                                    SidebarScreen.PRIVACY -> {
+                                                        PrivacySecurityView(
+                                                            onBackClick = { activeSidebarScreen = null },
+                                                            onWipeData = {} // 🚀 SAFE EMPTY HANDLER
+                                                        )
+                                                    }
+                                                    null -> {}
+                                                }
+
+                                                pendingSharedTransaction?.let { txn ->
+                                                    TransactionDetailsCard(
+                                                        transaction = txn,
+                                                        categories = categories,
+                                                        isNew = true,
+                                                        onDismiss = { pendingSharedTransaction = null },
+                                                        onCategoryChange = { finalTxn ->
+                                                            CoroutineScope(Dispatchers.IO).launch {
+                                                                val engine = ExpenseEngine(context)
+                                                                engine.saveTransaction(finalTxn)
+                                                                withContext(Dispatchers.Main) {
+                                                                    pendingSharedTransaction = null
+                                                                }
+                                                            }
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                     else -> {
-                        LoginScreen(
-                            viewModel = homeViewModel,
-                            onLoginSuccess = {
-                                homeViewModel.verifyUserAndCache(context)
-                            }
-                        )
+                        else -> {
+                            LoginScreen(
+                                viewModel = homeViewModel,
+                                onLoginSuccess = { homeViewModel.verifyUserAndCache(context) }
+                            )
+                        }
                     }
+                } // 🛑 END OF APP WRAPPER
+
+                if (showRecurringSuggestion) {
+                    RecurringSuggestionDialog(
+                        merchant = pendingSuggestedMerchant,
+                        amount = pendingSuggestedAmount,
+                        onDismiss = { showRecurringSuggestion = false },
+                        onConfirm = { _ ->
+                            showRecurringSuggestion = false
+                            prefillSubMerchant = pendingSuggestedMerchant
+                            prefillSubAmount = pendingSuggestedAmount
+                            showAddSubscriptionDialog = true
+                        }
+                    )
+                }
+
+                if (showAddSubscriptionDialog) {
+                    AddSubscriptionDialog(
+                        initialMerchant = prefillSubMerchant,
+                        initialAmount = if (prefillSubAmount > 0) prefillSubAmount.toString() else "",
+                        onDismiss = { showAddSubscriptionDialog = false },
+                        onSave = { merchant, amount, frequency, billingDay, category ->
+                            homeViewModel.addManualSubscription(merchant, amount, frequency, billingDay, category)
+                            showAddSubscriptionDialog = false
+                            Toast.makeText(context, "$merchant added to Recurring!", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 }
             }
         }
@@ -485,32 +658,39 @@ class MainActivity : ComponentActivity() {
 
                 val image = InputImage.fromBitmap(invertedBitmap, 0)
                 val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                val visionText: com.google.mlkit.vision.text.Text = recognizer.process(image).await()
+
+                val engine = ExpenseEngine(context)
+                val request = TransactionRequest(
+                    rawText = visionText.text,
+                    source = TransactionSource.SCREENSHOT,
+                    appName = "SCREENSHOT",
+                    paymentMode = "UPI",
+                    timestamp = System.currentTimeMillis()
+                )
+
+                val result = engine.processTransaction(request)
 
                 withContext(Dispatchers.Main) {
-                    recognizer.process(image)
-                        .addOnSuccessListener { visionText ->
-                            CoroutineScope(Dispatchers.IO).launch {
-                                ExpenseEngine.processTransaction(
-                                    context = context,
-                                    rawText = visionText.text,
-                                    appName = "SCREENSHOT",
-                                    paymentMode = "UPI",
-                                    timestamp = System.currentTimeMillis()
-                                ) { parsedList ->
-                                    CoroutineScope(Dispatchers.Main).launch {
-                                        if (parsedList != null && parsedList.isNotEmpty()) {
-                                            pendingSharedTransaction = parsedList[0]
-                                        } else {
-                                            pendingSharedTransaction = null
-                                            Toast.makeText(context, "Could not find a valid transaction.", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            }
+                    when (result) {
+                        is ParseResult.NeedsReview -> {
+                            pendingSharedTransaction = result.transactions.firstOrNull()
+                            Toast.makeText(context, "Review transaction details", Toast.LENGTH_SHORT).show()
                         }
-                        .addOnFailureListener { e -> Log.e("XpenseMate_OCR", "Failed to read text", e) }
+                        is ParseResult.Saved -> {
+                            Toast.makeText(context, "Screenshot processed & saved!", Toast.LENGTH_SHORT).show()
+                        }
+                        else -> {
+                            Toast.makeText(context, "Could not extract transaction data.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) {
+                Log.e("XpenseMate_OCR", "Failed to process image", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Error processing screenshot: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -518,30 +698,71 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleShareIntent(intent)
+        handleWatchDogIntent(intent)
+    }
+}
+
+@Composable
+fun PostPurchaseDialog(
+    appName: String,
+    wentToUpi: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val titleText = if (wentToUpi) "Payment Detected!" else "Session Ended"
+    val messageText = if (wentToUpi) {
+        "It looks like you just made a payment on $appName. Want to log this expense now to keep your budget accurate?"
+    } else {
+        "You were recently browsing $appName. Did you end up spending any money?"
     }
 
-    private fun handleShareIntent(currentIntent: Intent?) {
-        if (currentIntent?.action == Intent.ACTION_SEND) {
-            if (currentIntent.type?.startsWith("image/") == true) {
-                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    currentIntent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    currentIntent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFFFF3B30).copy(alpha = 0.15f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Warning,
+                            contentDescription = "Warning",
+                            tint = Color(0xFFFF3B30),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
-                if (uri != null) processSharedImage(this, uri)
-            } else if (currentIntent.type == "application/pdf") {
-                val pdfUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    currentIntent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    currentIntent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-                }
-                if (pdfUri != null) {
-                    pendingPdfUri = pdfUri
-                    showPdfPasswordDialog = true
-                }
+                Text(
+                    text = titleText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFFFF3B30)
+                )
+            }
+        },
+        text = {
+            Text(messageText, fontSize = 15.sp)
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFF3B30),
+                    contentColor = Color.White
+                )
+            ) {
+                Text("Yes, Log Expense")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("No, I didn't", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    }
+    )
 }

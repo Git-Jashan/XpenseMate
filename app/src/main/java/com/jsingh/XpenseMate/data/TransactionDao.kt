@@ -52,4 +52,12 @@ interface TransactionDao {
     // Completely obliterates the offline queue so old users' data doesn't sync to the new user
     @Query("DELETE FROM pending_transactions")
     suspend fun nukePendingTransactions()
+
+    @Query("""
+        SELECT SUM(amount) FROM transactions 
+        WHERE isExpense = 1 
+        AND category = :category 
+        AND timestamp >= :startOfMonthTimestamp
+    """)
+    suspend fun getTotalSpentForCategoryThisMonth(category: String, startOfMonthTimestamp: Long): Double?
 }

@@ -20,3 +20,4 @@ local.properties
 /.kotlin/errors/errors-1776245122347.log
 /.kotlin/errors/errors-1776245382532.log
 /.kotlin/errors/errors-1776964946515.log
+.aider*

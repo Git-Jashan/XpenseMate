@@ -27,7 +27,6 @@ fun AccountDialog(
     onDismiss: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
-    // Smart Name Extractor
     val cleanName = userEmail.substringBefore("@").filter { it.isLetter() }
     val derivedDisplayName = if (cleanName.isNotEmpty()) cleanName.replaceFirstChar { it.uppercase() } else "User"
     val derivedInitials = derivedDisplayName.take(2).uppercase()
@@ -100,32 +99,6 @@ fun AccountDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // --- SECTION 3: QUICK ACTIONS (Visual UI Polish) ---
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { /* TODO */ },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f).height(44.dp)
-                    ) {
-                        Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Settings", fontSize = 13.sp)
-                    }
-                    OutlinedButton(
-                        onClick = { /* TODO */ },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f).height(44.dp)
-                    ) {
-                        Icon(Icons.Rounded.SimCardDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Export", fontSize = 13.sp)
-                    }
-                }
             }
         },
         confirmButton = {

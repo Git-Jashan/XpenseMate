@@ -102,4 +102,6 @@ dependencies {
     implementation("io.ktor:ktor-client-android:3.0.0")
     implementation("io.github.jan-tennert.supabase:compose-auth:3.0.0")
     implementation("com.russhwolf:multiplatform-settings-no-arg:1.1.1")
-}
+    implementation("com.google.mlkit:entity-extraction:16.0.0-beta4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    implementation("androidx.biometric:biometric:1.1.0")}

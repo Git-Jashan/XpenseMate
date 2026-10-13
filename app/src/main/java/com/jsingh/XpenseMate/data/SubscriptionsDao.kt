@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -33,4 +34,6 @@ interface SubscriptionsDao {
     // Completely obliterates all local subscriptions for user switching
     @Query("DELETE FROM subscriptions")
     suspend fun nukeSubscriptions()
+    @Update
+    fun updateSubscription(subscription: Subscriptions)
 }

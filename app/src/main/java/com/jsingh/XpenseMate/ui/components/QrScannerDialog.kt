@@ -47,7 +47,38 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+data class UpiData(
+    val merchantName: String,
+    val merchantVpa: String,
+    val merchantCode: String,
+    val amount: String
+)
+
+private fun parseUpiUri(rawUri: String): UpiData {
+    return try {
+        val parsedUri = Uri.parse(rawUri)
+        val rawName = parsedUri.getQueryParameter("pn") ?: ""
+
+        // Handles URL encoding (%20, %26) and legacy plus-sign encoding safely
+        val decodedName = URLDecoder.decode(rawName, StandardCharsets.UTF_8.name())
+            .replace("+", " ")
+
+        UpiData(
+            merchantName = decodedName,
+            merchantVpa = parsedUri.getQueryParameter("pa") ?: "",
+            merchantCode = parsedUri.getQueryParameter("mc") ?: "",
+            amount = parsedUri.getQueryParameter("am") ?: ""
+        )
+    } catch (e: Exception) {
+        e.printStackTrace()
+        UpiData("", "", "", "")
+    }
+}
 
 @Composable
 fun QrScannerDialog(
@@ -63,24 +94,30 @@ fun QrScannerDialog(
         uri?.let { selectedUri ->
             try {
                 val image = InputImage.fromFilePath(context, selectedUri)
-                val scanner = BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
+                val scanner = BarcodeScanning.getClient(
+                    BarcodeScannerOptions.Builder()
+                        .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                        .build()
+                )
 
                 scanner.process(image).addOnSuccessListener { barcodes ->
                     for (barcode in barcodes) {
                         val rawValue = barcode.rawValue
                         if (rawValue != null && rawValue.startsWith("upi://")) {
-                            val parsedUri = Uri.parse(rawValue)
+                            val upiData = parseUpiUri(rawValue)
                             onQrScanned(
-                                parsedUri.getQueryParameter("pn")?.replace("+", " ") ?: "",
-                                parsedUri.getQueryParameter("pa") ?: "",
-                                parsedUri.getQueryParameter("mc") ?: "",
-                                parsedUri.getQueryParameter("am") ?: ""
+                                upiData.merchantName,
+                                upiData.merchantVpa,
+                                upiData.merchantCode,
+                                upiData.amount
                             )
-                            break // Found it, stop looking
+                            break
                         }
                     }
                 }
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -109,12 +146,12 @@ fun QrScannerDialog(
                             .build()
                             .also {
                                 it.setAnalyzer(Executors.newSingleThreadExecutor(), QrCodeAnalyzer { qrText ->
-                                    val uri = Uri.parse(qrText)
+                                    val upiData = parseUpiUri(qrText)
                                     onQrScanned(
-                                        uri.getQueryParameter("pn")?.replace("+", " ") ?: "",
-                                        uri.getQueryParameter("pa") ?: "",
-                                        uri.getQueryParameter("mc") ?: "",
-                                        uri.getQueryParameter("am") ?: ""
+                                        upiData.merchantName,
+                                        upiData.merchantVpa,
+                                        upiData.merchantCode,
+                                        upiData.amount
                                     )
                                 })
                             }
@@ -135,6 +172,7 @@ fun QrScannerDialog(
                 modifier = Modifier.fillMaxSize()
             )
 
+            // Transparent Mask and Target Brackets
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
@@ -203,25 +241,38 @@ private class QrCodeAnalyzer(private val onQrScanned: (String) -> Unit) : ImageA
     private val scanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
     )
-    private var canScan = true
+    // AtomicBoolean prevents background multi-thread race conditions during analysis latches
+    private val canScan = AtomicBoolean(true)
 
     @ExperimentalGetImage
     override fun analyze(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
-        if (mediaImage != null && canScan) {
+        if (mediaImage != null && canScan.compareAndSet(true, false)) {
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
             scanner.process(image)
                 .addOnSuccessListener { barcodes ->
+                    var qrFound = false
+
                     for (barcode in barcodes) {
                         val text = barcode.rawValue
                         if (text != null && text.startsWith("upi://")) {
-                            canScan = false
+                            qrFound = true
                             onQrScanned(text)
-                            break
+                            break // Safely breaks the loop now
                         }
                     }
+
+                    // Only re-enable scanning if NO valid UPI QR match was found in this frame
+                    if (!qrFound) {
+                        canScan.set(true)
+                    }
+                }
+                .addOnFailureListener {
+                    // If processing fails, reset latch so it can try next frame
+                    canScan.set(true)
                 }
                 .addOnCompleteListener {
+                    // CRUCIAL: Always close the imageProxy to prevent memory leaks and camera freeze
                     imageProxy.close()
                 }
         } else {

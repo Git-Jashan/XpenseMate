@@ -48,7 +48,7 @@ fun DesignSettingsView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
+                    .padding(bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
@@ -82,8 +82,6 @@ fun DesignSettingsView(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
 
             // --- THE VISUAL THEME SELECTOR ---
             Text("Select Mode", fontSize = 14.sp, fontWeight = FontWeight.Bold)

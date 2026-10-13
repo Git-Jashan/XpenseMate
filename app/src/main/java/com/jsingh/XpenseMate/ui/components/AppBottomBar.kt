@@ -31,7 +31,7 @@ import com.jsingh.XpenseMate.R
 fun AppBottomBar(
     selectedItem: Int,
     onItemSelected: (Int) -> Unit,
-    onAddClick: () -> Unit
+    onAddManualClick: () -> Unit
 ) {
     Column {
         HorizontalDivider(
@@ -68,7 +68,7 @@ fun AppBottomBar(
 
             NavigationBarItem(
                 selected = false,
-                onClick = { onAddClick() },
+                onClick = onAddManualClick ,
                 icon = {
                     Surface(
                         shape = CircleShape,
@@ -77,8 +77,8 @@ fun AppBottomBar(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.Rounded.QrCodeScanner,
-                                contentDescription = "Scan UPI QR",
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Manual Entry",
                                 modifier = Modifier.size(32.dp)
                             )
                            }

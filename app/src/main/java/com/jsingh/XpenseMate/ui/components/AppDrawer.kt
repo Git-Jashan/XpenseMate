@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Help
 import androidx.compose.material.icons.rounded.Label
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PieChart
 import androidx.compose.material.icons.rounded.Repeat
@@ -51,7 +52,7 @@ fun AppDrawer(
     activeRoute: SidebarScreen?,
     userEmail: String,
     onRouteSelected: (SidebarScreen) -> Unit,
-    onAccountClick: () -> Unit, // 👈 Triggers the clean account popup
+    onAccountClick: () -> Unit,
     closeDrawer: () -> Unit
 ) {
     // Dynamically derive display name and initials from the active login email
@@ -64,15 +65,13 @@ fun AppDrawer(
         modifier = Modifier.fillMaxWidth(0.80f)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-
-            // --- HEADER ACCOUNT SECTION ---
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                     .clickable {
                         closeDrawer()
-                        onAccountClick() // 👈 Opens account info popup dynamically
+                        onAccountClick()
                     }
                     .padding(20.dp)
             ) {
@@ -156,9 +155,7 @@ fun AppDrawer(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-
                 Spacer(modifier = Modifier.height(8.dp))
-
                 // Group 1: Core Financials
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Rounded.AccountBalance, contentDescription = null) },
@@ -175,17 +172,6 @@ fun AppDrawer(
                     onClick = {
                         closeDrawer()
                         onRouteSelected(SidebarScreen.BUDGET)
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Rounded.Label, contentDescription = null) },
-                    label = { Text("Tags & Categories", fontWeight = FontWeight.Medium) },
-                    selected = activeRoute == SidebarScreen.CATEGORY,
-                    onClick = {
-                        closeDrawer()
-                        onRouteSelected(SidebarScreen.CATEGORY)
                     },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
@@ -222,10 +208,12 @@ fun AppDrawer(
                 )
 
                 NavigationDrawerItem(
-                    icon = { Icon(Icons.Rounded.Notifications, contentDescription = null) },
-                    label = { Text("Notifications", fontWeight = FontWeight.Medium) },
+                    icon = { Icon(Icons.Rounded.NotificationsActive, contentDescription = null) },
+                    label = { Text("Budget Alerts", fontWeight = FontWeight.Medium) },
                     selected = false,
-                    onClick = { },
+                    onClick = {
+                        closeDrawer()
+                        onRouteSelected(SidebarScreen.BUDGET_ALERTS)},
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
@@ -240,24 +228,25 @@ fun AppDrawer(
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
                     label = { Text("Privacy & Security", fontWeight = FontWeight.Medium) },
-                    selected = false,
-                    onClick = { },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Rounded.Cloud, contentDescription = null) },
-                    label = { Text("Cloud Backup & Sync", fontWeight = FontWeight.Medium) },
-                    selected = false,
-                    onClick = { },
+                    // 1. Make it highlight dynamically when selected
+                    selected = activeRoute == SidebarScreen.PRIVACY,
+                    onClick = {
+                        // 2. Actually tell the app to change the screen!
+                        onRouteSelected(SidebarScreen.PRIVACY)
+                        // 3. Close the sliding menu
+                        closeDrawer()
+                    },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Rounded.Download, contentDescription = null) },
                     label = { Text("Export Data", fontWeight = FontWeight.Medium) },
-                    selected = false,
-                    onClick = { },
+                    selected = activeRoute == SidebarScreen.EXPORT,
+                    onClick = {
+                        onRouteSelected(SidebarScreen.EXPORT)
+                        closeDrawer()
+                    },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )

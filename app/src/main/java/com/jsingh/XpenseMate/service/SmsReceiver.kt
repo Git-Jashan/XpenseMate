@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -60,5 +63,26 @@ class SmsReceiver : BroadcastReceiver() {
 
         Log.d("XpenseMate_SMS", "✅ ULTIMATE SENTRY PASSED: Valid Transaction from $sender")
 
-        ExpenseEngine.processTransaction(context, originalBody, "SMS", "Bank", timestamp)}
+        val pendingResult = goAsync()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val request = TransactionRequest(
+                    rawText = originalBody,
+                    source = TransactionSource.SMS,
+                    appName = "SMS",
+                    paymentMode = "Bank",
+                    timestamp = timestamp,
+                    sender = sender
+                )
+
+                val engine = ExpenseEngine(context)
+                val result = engine.processTransaction(request)
+                Log.d("XpenseMate_SMS", "Engine Result: $result")
+
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
 }

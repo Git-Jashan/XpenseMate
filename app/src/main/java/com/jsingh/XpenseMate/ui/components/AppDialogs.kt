@@ -73,11 +73,13 @@ import kotlin.collections.toList
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddSubscriptionDialog(
+    initialMerchant: String = "",
+    initialAmount: String = "",
     onDismiss: () -> Unit,
     onSave: (String, Double, String, Int, String) -> Unit
 ) {
-    var merchant by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }
+    var merchant by remember { mutableStateOf(initialMerchant) }
+    var amount by remember { mutableStateOf(initialAmount) }
     var billingDay by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Entertainment") }
 
@@ -191,16 +193,18 @@ fun AddSubscriptionDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionPopup(
+    initialTitle: String = "",           // 🚀 NEW: Catches the auto-fill app name (e.g. "Zomato")
+    initialCategory: String = "General", // 🚀 NEW: Catches the auto-fill category (e.g. "Food & Dining")
     onDismiss: () -> Unit,
     categories: List<String>,
     onSave: (String, String, Boolean, String) -> Unit
 ) {
     var isExpense by remember { mutableStateOf(true) }
-    var title by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf(initialTitle) } // 🚀 NOW USES PRE-FILL
     var amount by remember { mutableStateOf("") }
 
     // Category States
-    var selectedCategory by remember { mutableStateOf("General") }
+    var selectedCategory by remember { mutableStateOf(initialCategory) } // 🚀 NOW USES PRE-FILL
     var showCategorySheet by remember { mutableStateOf(false) } // 👈 Controls the bottom sheet
 
     val expenseColor = Color(0xFFE57373)
@@ -407,7 +411,6 @@ fun TransactionPopup(
                                 val isSelected = selectedCategory == cat
                                 Surface(
                                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                                    // Highlights the selected one with Pure White (or Black in Light Mode)
                                     color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant.copy(
                                         alpha = 0.3f
                                     ),
@@ -429,7 +432,6 @@ fun TransactionPopup(
                                     )
                                 }
                             }
-                            // Fill empty spaces if a row has fewer than 3 items
                             repeat(3 - rowItems.size) {
                                 Spacer(modifier = Modifier.weight(1f))
                             }

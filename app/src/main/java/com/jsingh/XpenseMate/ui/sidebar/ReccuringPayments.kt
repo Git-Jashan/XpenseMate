@@ -42,9 +42,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jsingh.XpenseMate.data.Subscriptions
-import com.jsingh.XpenseMate.utils.*
 import java.util.Calendar
 import com.jsingh.XpenseMate.ui.components.*
+import com.jsingh.XpenseMate.ui.tabs.SubscriptionItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,7 +83,7 @@ fun RecurringPaymentsView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
-                        .padding(bottom = 12.dp, top = 16.dp),
+                        .padding(bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
@@ -100,7 +100,7 @@ fun RecurringPaymentsView(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Surface(
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -120,7 +120,7 @@ fun RecurringPaymentsView(
                         )
                     }
                 }
-
+                Spacer(modifier = Modifier.width(8.dp))
                 // --- 2. SUMMARY CARD ---
                 Card(
                     modifier = Modifier

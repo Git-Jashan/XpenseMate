@@ -38,6 +38,11 @@ class HomeViewModel(
     private val subscriptionDao: SubscriptionsDao
 ) : AndroidViewModel(application) {
 
+    fun wipeAllData() {
+        viewModelScope.launch(Dispatchers.IO) {
+        }
+    }
+
     private val _showAddDialog = MutableStateFlow(false)
     val showAddDialog = _showAddDialog.asStateFlow()
 
@@ -53,7 +58,7 @@ class HomeViewModel(
     private val _monthlyLimit = MutableStateFlow(SettingsManager.getBudgets(application).second.toDouble())
     val monthlyLimit = _monthlyLimit.asStateFlow()
 
-    private val _categories = MutableStateFlow(SettingsManager.getCategories(application).toList())
+    private val _categories = MutableStateFlow(loadInitialCategories(application))
     val categories = _categories.asStateFlow()
 
     private val _categoryLimits = MutableStateFlow(SettingsManager.getCategoryBudgets(application))
@@ -82,6 +87,22 @@ class HomeViewModel(
                 println("Auth Initialization Error: ${e.message}")
             }
         }
+    }
+
+    private fun loadInitialCategories(context: Application): List<String> {
+        val saved = SettingsManager.getCategories(context).toList()
+        if (saved.isEmpty()) {
+            val defaultCategories = listOf(
+                "Food & Dining",
+                "Shopping",
+                "Entertainment",
+                "Groceries",
+                "General"
+            )
+            SettingsManager.saveCategories(context, defaultCategories.toSet())
+            return defaultCategories
+        }
+        return saved
     }
 
     fun resetAuthState() {
@@ -150,7 +171,7 @@ class HomeViewModel(
         category: String, date: String, time: String, source: String = "Manual"
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-           val newTxn = Transaction(title = title, amount = amount, isExpense = isExpense, category = category, date = date, time = time)
+            val newTxn = Transaction(title = title, amount = amount, isExpense = isExpense, category = category, date = date, time = time)
             transactionDao.insertTransaction(newTxn)
             _showAddDialog.value = false
 
@@ -173,7 +194,7 @@ class HomeViewModel(
                     println("Cloud Sync Warning: User not logged in. Saved locally only.")
                 }
             } catch (e: Exception) {
-               println("Cloud Sync UPLOAD Error: ${e.message}")
+                println("Cloud Sync UPLOAD Error: ${e.message}")
                 e.printStackTrace()
             }
         }
@@ -225,7 +246,7 @@ class HomeViewModel(
                     transactionDao.nukePendingTransactions()
                     subscriptionDao.nukeSubscriptions()
 
-                   SettingsManager.saveLastUserId(context, activeUserId)
+                    SettingsManager.saveLastUserId(context, activeUserId)
 
                     fetchCloudDataAndSaveToRoom(activeUserId)
                 }
@@ -256,16 +277,16 @@ class HomeViewModel(
                 var parsedTime = ""
 
                 if (rawTimestamp.contains("T")) {
-                    val rawDateString = rawTimestamp.substringBefore("T") // Gets "2026-06-12"
+                    val rawDateString = rawTimestamp.substringBefore("T")
 
-                   try {
+                    try {
                         val dateObj = inputFormat.parse(rawDateString)
                         parsedDate = if (dateObj != null) outputFormat.format(dateObj) else rawDateString
                     } catch (e: Exception) {
-                        parsedDate = rawDateString // Fallback just in case
+                        parsedDate = rawDateString
                     }
 
-                    parsedTime = rawTimestamp.substringAfter("T").substringBefore(".") // Gets "01:30:21"
+                    parsedTime = rawTimestamp.substringAfter("T").substringBefore(".")
                 }
 
                 val localTransaction = Transaction(
@@ -273,7 +294,7 @@ class HomeViewModel(
                     amount = dto.amount ?: 0.0,
                     isExpense = dto.isExpense ?: true,
                     category = dto.category ?: "Uncategorized",
-                    date = parsedDate, // 👈 Now saves as "12 Jun 2026"
+                    date = parsedDate,
                     time = parsedTime
                 )
                 transactionDao.insertTransaction(localTransaction)
@@ -290,7 +311,7 @@ class HomeViewModel(
     fun logOut(onLogoutComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-               supabase.auth.signOut()
+                supabase.auth.signOut()
 
                 _authState.value = AuthState.Idle
                 currentUserEmail.value = ""
@@ -301,6 +322,44 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 println("Logout Error: ${e.message}")
+            }
+        }
+    }
+
+    // 🚀 PROPERLY PLACED INSIDE THE CLASS!
+    fun markSubscriptionPaid(subscription: com.jsingh.XpenseMate.data.Subscriptions) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = java.time.LocalDateTime.now()
+            val dateFormatter = java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")
+            val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a")
+
+            // 1. Automatically log the expense to your history
+            saveTransaction(
+                title = subscription.merchant,
+                amount = subscription.amount,
+                isExpense = true,
+                category = if (subscription.category.isNotEmpty()) subscription.category else "Subscriptions",
+                date = now.format(dateFormatter),
+                time = now.format(timeFormatter)
+            )
+
+            // 2. Calculate the next due date
+            val calendar = java.util.Calendar.getInstance()
+            calendar.timeInMillis = subscription.nextDueDate
+
+            // Move forward by 1 year or 1 month
+            if (subscription.frequency.lowercase(java.util.Locale.getDefault()) == "yearly") {
+                calendar.add(java.util.Calendar.YEAR, 1)
+            } else {
+                calendar.add(java.util.Calendar.MONTH, 1)
+            }
+
+            val updatedSub = subscription.copy(nextDueDate = calendar.timeInMillis)
+
+            try {
+                subscriptionDao.updateSubscription(updatedSub)
+            } catch (e: Exception) {
+                subscriptionDao.insertSubscription(updatedSub)
             }
         }
     }

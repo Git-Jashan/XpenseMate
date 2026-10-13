@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -46,7 +44,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import com.jsingh.XpenseMate.utils.UpiUtils
-import java.util.UUID
 
 @Composable
 fun UpiPaymentDialog(
@@ -55,7 +52,6 @@ fun UpiPaymentDialog(
     merchantCode: String,
     scannedAmount: String,
     onDismiss: () -> Unit,
-    // Hybrid Callback: Returns Amount, Name, and explicit Success status (true/false/null)
     onPaymentAttempted: (Double, String, Boolean?) -> Unit
 ) {
     val context = LocalContext.current
@@ -63,7 +59,6 @@ fun UpiPaymentDialog(
     var appsExpanded by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
-    // Read local cache parameters
     val rawInstalledApps = remember { UpiUtils.getInstalledUpiApps(context) }
     val sharedPreferences = remember { context.getSharedPreferences("XpenseMatePrefs", Context.MODE_PRIVATE) }
     val lastUsedPackage = remember { sharedPreferences.getString("LAST_UPI_APP", null) }
@@ -93,24 +88,6 @@ fun UpiPaymentDialog(
 
     val parsedAmount = amountInput.toDoubleOrNull() ?: 0.0
     val isValidAmount = parsedAmount >= 1.0
-
-    // Smart Launcher Engine
-    val upiLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val dataIntent = result.data
-        val responseText = dataIntent?.getStringExtra("response") ?: ""
-
-        if (merchantCode.isNotBlank() && merchantCode != "0000") {
-            // It's a Shop: We get explicit success/failure
-            val isSuccess = responseText.contains("SUCCESS", ignoreCase = true) ||
-                    result.resultCode == android.app.Activity.RESULT_OK
-            onPaymentAttempted(parsedAmount, payeeName, isSuccess)
-        } else {
-            // It's a Friend: GPay gives no response. Pass null to trigger deduplication.
-            onPaymentAttempted(parsedAmount, payeeName, null)
-        }
-    }
 
     LaunchedEffect(Unit) {
         if (scannedAmount.isEmpty()) focusRequester.requestFocus()
@@ -147,7 +124,12 @@ fun UpiPaymentDialog(
                             .border(1.dp, Color(0xFF262626), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(payeeName.take(1).uppercase(), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = payeeName.take(1).uppercase().ifEmpty { "E" },
+                            color = Color.White,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(payeeName.ifEmpty { "External Payee" }, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -282,38 +264,32 @@ fun UpiPaymentDialog(
                             // 1. Save Last Used App
                             sharedPreferences.edit().putString("LAST_UPI_APP", selectedApp!!.packageName).apply()
 
-                            // 2. Format Variables
-                            val timestamp = System.currentTimeMillis()
-                            val entropy = UUID.randomUUID().toString().replace("-", "").take(6).uppercase()
-                            val trackingRef = "XPM$timestamp$entropy"
-                            val cleanMoneyString = String.format(java.util.Locale.US, "%.2f", parsedAmount)
+                            // 2. Build Safe URI manually to prevent Uri.Builder from corrupting '@' into '%40'
+                            val safeVpa = payeeVpa.trim()
+                            val safeName = Uri.encode(payeeName.trim().ifBlank { "User Transfer" }) // Encodes spaces safely
 
-                            // 3. Build Safe URI (Conditional Amount Injection)
-                            val paymentUri = Uri.Builder()
-                                .scheme("upi")
-                                .authority("pay")
-                                .appendQueryParameter("pa", payeeVpa)
-                                .appendQueryParameter("pn", payeeName.ifBlank { "User Transfer" })
-                                .appendQueryParameter("cu", "INR")
-                                .apply {
-                                    if (merchantCode.isNotBlank() && merchantCode != "0000") {
-                                        appendQueryParameter("mc", merchantCode)
-                                        appendQueryParameter("tr", trackingRef)
-                                        appendQueryParameter("tn", "XpenseMate Checkout")
-                                        appendQueryParameter("am", cleanMoneyString)
-                                    }
-                                }.build()
+                            var uriString = "upi://pay?pa=$safeVpa&pn=$safeName&cu=INR"
 
-                            // 4. Ghost the Intent
+                            // Only append Merchant Code if it's a valid shop.
+                            // DO NOT append 'am', 'tr', or 'tn' to bypass security blocks.
+                            if (merchantCode.isNotBlank() && merchantCode != "0000") {
+                                uriString += "&mc=${merchantCode.trim()}"
+                            }
+
+                            val paymentUri = Uri.parse(uriString)
+
+                            // 3. The Safe Intent
                             val executionIntent = Intent(Intent.ACTION_VIEW, paymentUri).apply {
                                 setPackage(selectedApp!!.packageName)
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-                                addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY)
                             }
 
                             try {
-                                upiLauncher.launch(executionIntent)
+                                // 4. Log intention locally (passing null so it waits for background engine to confirm via SMS)
+                                onPaymentAttempted(parsedAmount, safeName, null)
+
+                                // 5. Fire the Intent
+                                context.startActivity(executionIntent)
                             } catch (err: Exception) {
                                 Toast.makeText(context, "Execution halted: Cannot initialize target channel.", Toast.LENGTH_SHORT).show()
                             }

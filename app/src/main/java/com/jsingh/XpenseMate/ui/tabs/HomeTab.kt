@@ -1,10 +1,12 @@
 package com.jsingh.XpenseMate.ui.tabs
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -16,9 +18,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,8 +43,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jsingh.XpenseMate.R
@@ -48,6 +59,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
 import com.jsingh.XpenseMate.ui.components.*
+import com.jsingh.XpenseMate.utils.getOrdinalSuffix
 
 @Composable
 fun HomeTab(
@@ -56,21 +68,22 @@ fun HomeTab(
     dailyLimit: Double,
     monthlyLimit: Double,
     onAddManualClick: () -> Unit,
-    onPayAnyoneClick: () -> Unit
+    onPayAnyoneClick: () -> Unit,
+    isIncognito: Boolean,
+    onMarkSubscriptionPaid: (Subscriptions) -> Unit
 ) {
-
+    val context = LocalContext.current
 
     val todayFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
     val todayString = LocalDateTime.now().format(todayFormatter)
     val currentMonthString = LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMM yyyy"))
 
-    val dailySpent =
-        transactions.filter { it.isExpense && it.date == todayString }.sumOf { it.amount }
-    val monthlySpent = transactions.filter { it.isExpense && it.date.contains(currentMonthString) }
-        .sumOf { it.amount }
+    val dailySpent = transactions.filter { it.isExpense && it.date == todayString }.sumOf { it.amount }
+    val monthlySpent = transactions.filter { it.isExpense && it.date.contains(currentMonthString) }.sumOf { it.amount }
 
-    val dailyRatio = (dailySpent / dailyLimit).toFloat().coerceIn(0f, 1f)
-    val monthlyRatio = (monthlySpent / monthlyLimit).toFloat().coerceIn(0f, 1f)
+    // 🚀 DIVIDE BY ZERO CRASH PREVENTION
+    val dailyRatio = if (dailyLimit > 0) (dailySpent / dailyLimit).toFloat().coerceIn(0f, 1f) else 0f
+    val monthlyRatio = if (monthlyLimit > 0) (monthlySpent / monthlyLimit).toFloat().coerceIn(0f, 1f) else 0f
 
     val safeColor = Color(0xFFA8D5BA)
     val warningColor = Color(0xFFFCD7A1)
@@ -86,7 +99,7 @@ fun HomeTab(
         monthlyRatio < 0.8f -> warningColor
         else -> dangerColor
     }
-    var showCategoryBreakdown by remember { mutableStateOf(false) }
+
     val formatter = remember {
         NumberFormat.getNumberInstance(Locale("en", "IN"))
             .apply { minimumFractionDigits = 0; maximumFractionDigits = 0 }
@@ -103,7 +116,7 @@ fun HomeTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -132,7 +145,7 @@ fun HomeTab(
                         .height(12.dp)
                         .background(
                             MaterialTheme.colorScheme.surfaceVariant,
-                            androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                            RoundedCornerShape(6.dp)
                         )
                 ) {
                     Box(
@@ -141,7 +154,7 @@ fun HomeTab(
                             .height(12.dp)
                             .background(
                                 dailyColor,
-                                androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                                RoundedCornerShape(6.dp)
                             )
                     )
                 }
@@ -153,7 +166,7 @@ fun HomeTab(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Surface(
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
                 modifier = Modifier
                     .weight(1f)
@@ -204,7 +217,7 @@ fun HomeTab(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Surface(
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
                     modifier = Modifier
                         .weight(1f)
@@ -232,12 +245,12 @@ fun HomeTab(
                 }
 
                 Surface(
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
-                        onClick = onAddManualClick
+                    onClick = onAddManualClick
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -301,7 +314,8 @@ fun HomeTab(
 
         when (selectedHomeTab) {
             0 -> {
-                val recentTxns = transactions.take(5)
+                // Safely sort the recent transactions so newest is on top
+                val recentTxns = transactions.reversed().take(5)
                 if (recentTxns.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -319,14 +333,12 @@ fun HomeTab(
 
             1 -> {
                 Column(modifier = Modifier.fillMaxWidth()) {
-
-                    // --- 1. The Pill Toggle (Today vs This Month) ---
                     Box(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
                         Surface(
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                            shape = RoundedCornerShape(50),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier
                                 .width(200.dp)
@@ -339,45 +351,23 @@ fun HomeTab(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxHeight()
-                                        .clip(
-                                            androidx.compose.foundation.shape.RoundedCornerShape(50)
-                                        )
-                                        .background(
-                                            if (categoryTimeframe == "Today") MaterialTheme.colorScheme.surface.copy(
-                                                0.5f
-                                            ) else Color.Transparent
-                                        )
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (categoryTimeframe == "Today") MaterialTheme.colorScheme.surface.copy(0.5f) else Color.Transparent)
                                         .clickable { categoryTimeframe = "Today" },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        "Today",
-                                        color = if (categoryTimeframe == "Today") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp
-                                    )
+                                    Text("Today", color = if (categoryTimeframe == "Today") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                                 }
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxHeight()
-                                        .clip(
-                                            androidx.compose.foundation.shape.RoundedCornerShape(50)
-                                        )
-                                        .background(
-                                            if (categoryTimeframe == "This Month") MaterialTheme.colorScheme.surface.copy(
-                                                0.5f
-                                            ) else Color.Transparent
-                                        )
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (categoryTimeframe == "This Month") MaterialTheme.colorScheme.surface.copy(0.5f) else Color.Transparent)
                                         .clickable { categoryTimeframe = "This Month" },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        "This Month",
-                                        color = if (categoryTimeframe == "This Month") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp
-                                    )
+                                    Text("This Month", color = if (categoryTimeframe == "This Month") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                                 }
                             }
                         }
@@ -385,38 +375,22 @@ fun HomeTab(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // --- 2. Smart Date Filtering ---
-                    val todayString =
-                        LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"))
-                    val currentMonthString =
-                        LocalDate.now().format(DateTimeFormatter.ofPattern("MMM yyyy"))
-
                     val categoryTotals = transactions
-                        .filter { txn ->
-                            txn.isExpense && if (categoryTimeframe == "Today") txn.date == todayString else txn.date.contains(
-                                currentMonthString
-                            )
-                        }
+                        .filter { txn -> txn.isExpense && if (categoryTimeframe == "Today") txn.date == todayString else txn.date.contains(currentMonthString) }
                         .groupBy { it.category }
                         .mapValues { entry -> entry.value.sumOf { it.amount } }
                         .toList()
-                        .sortedByDescending { it.second } // Sorts highest spend to the top
+                        .sortedByDescending { it.second }
 
-                    // --- 3. The Flat List ---
                     if (categoryTotals.isEmpty()) {
-                        val emptyText =
-                            if (categoryTimeframe == "Today") "today." else "this month."
+                        val emptyText = if (categoryTimeframe == "Today") "today." else "this month."
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 24.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                "No expenses logged $emptyText",
-                                color = Color.Gray,
-                                fontSize = 14.sp
-                            )
+                            Text("No expenses logged $emptyText", color = Color.Gray, fontSize = 14.sp)
                         }
                     } else {
                         Column(
@@ -425,12 +399,6 @@ fun HomeTab(
                                 .padding(top = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            val formatter = remember {
-                                NumberFormat.getNumberInstance(Locale("en", "IN"))
-                                    .apply { minimumFractionDigits = 0; maximumFractionDigits = 0 }
-                            }
-
-                            // Show top 5 categories to keep the dashboard clean
                             categoryTotals.take(5).forEach { (category, amount) ->
                                 Row(
                                     modifier = Modifier
@@ -440,42 +408,17 @@ fun HomeTab(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                                alpha = 0.5f
-                                            ),
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
+                                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(36.dp)) {
                                             Box(contentAlignment = Alignment.Center) {
-                                                Text(
-                                                    text = category.take(1).uppercase(),
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
+                                                Text(text = category.take(1).uppercase(), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                             }
                                         }
                                         Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            category,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
+                                        Text(category, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                                     }
-                                    Text(
-                                        "₹${formatter.format(amount)}",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    Text("₹${formatter.format(amount)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 }
-                                HorizontalDivider(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    thickness = 0.5.dp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                                )
+                                HorizontalDivider(modifier = Modifier.fillMaxWidth(), thickness = 0.5.dp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
                             }
                         }
                     }
@@ -484,61 +427,14 @@ fun HomeTab(
 
             2 -> {
                 Column(modifier = Modifier.fillMaxWidth()) {
-
-                    // --- 1. The Pill Toggle ---
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Surface(
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier
-                                .width(200.dp)
-                                .height(32.dp)
-                        ) {
-                            Row(modifier = Modifier
-                                .fillMaxSize()
-                                .padding(2.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .clip(
-                                            androidx.compose.foundation.shape.RoundedCornerShape(
-                                                50
-                                            )
-                                        )
-                                        .background(if (recurringSubTab == "Pending") MaterialTheme.colorScheme.surface else Color.Transparent)
-                                        .clickable { recurringSubTab = "Pending" },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "Pending",
-                                        color = if (recurringSubTab == "Pending") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp
-                                    )
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.width(200.dp).height(32.dp)) {
+                            Row(modifier = Modifier.fillMaxSize().padding(2.dp)) {
+                                Box(modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50)).background(if (recurringSubTab == "Pending") MaterialTheme.colorScheme.surface else Color.Transparent).clickable { recurringSubTab = "Pending" }, contentAlignment = Alignment.Center) {
+                                    Text("Pending", color = if (recurringSubTab == "Pending") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .clip(
-                                            androidx.compose.foundation.shape.RoundedCornerShape(
-                                                50
-                                            )
-                                        )
-                                        .background(if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.surface else Color.Transparent)
-                                        .clickable { recurringSubTab = "Upcoming" },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "Upcoming",
-                                        color = if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp
-                                    )
+                                Box(modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50)).background(if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.surface else Color.Transparent).clickable { recurringSubTab = "Upcoming" }, contentAlignment = Alignment.Center) {
+                                    Text("Upcoming", color = if (recurringSubTab == "Upcoming") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                                 }
                             }
                         }
@@ -546,7 +442,6 @@ fun HomeTab(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // --- 2. Smart Date Filtering ---
                     val calendar = Calendar.getInstance()
                     calendar.set(Calendar.HOUR_OF_DAY, 23)
                     calendar.set(Calendar.MINUTE, 59)
@@ -555,29 +450,27 @@ fun HomeTab(
 
                     val displayedSubs = subscriptions.filter { sub ->
                         if (recurringSubTab == "Pending") {
-                            sub.nextDueDate <= endOfToday // Due today or already overdue
+                            sub.nextDueDate <= endOfToday
                         } else {
-                            sub.nextDueDate > endOfToday  // Due tomorrow or later
+                            sub.nextDueDate > endOfToday
                         }
-                    }.sortedBy { it.nextDueDate } // Most urgent at the top
-                    // --- 3. The Flat List ---
+                    }.sortedBy { it.nextDueDate }
+
                     if (displayedSubs.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "No $recurringSubTab subscriptions.",
-                                color = Color.Gray,
-                                fontSize = 14.sp
-                            )
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                            Text("No $recurringSubTab subscriptions.", color = Color.Gray, fontSize = 14.sp)
                         }
                     } else {
                         Column {
                             displayedSubs.forEach { sub ->
-                                HomeSubscriptionItem(sub = sub)
+                                // 🚀 PERFECTLY WIRED UP
+                                HomeSubscriptionItem(
+                                    sub = sub,
+                                    onMarkPaid = {
+                                        onMarkSubscriptionPaid(sub)
+                                        Toast.makeText(context, "${sub.merchant} marked as paid!", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                             }
                         }
                     }
@@ -585,5 +478,169 @@ fun HomeTab(
             }
         }
     }
+}
 
+@Composable
+fun SubscriptionItem(sub: Subscriptions, onDelete: () -> Unit) {
+    val firstLetter = sub.merchant.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    val safeFrequency =
+        if (sub.frequency.isNotEmpty()) sub.frequency.take(1).uppercase() + sub.frequency.drop(1)
+            .lowercase() else "Unknown"
+    val subtitleText =
+        "$safeFrequency • Due on ${sub.billingDay}${getOrdinalSuffix(sub.billingDay)}"
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(46.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        firstLetter,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    sub.merchant,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(subtitleText, fontSize = 13.sp, color = Color.Gray, maxLines = 1)
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "- ₹${String.format("%.2f", sub.amount)}",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFE57373),
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+        HorizontalDivider(
+            modifier = Modifier.fillMaxWidth(),
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+        )
+    }
+}
+
+@Composable
+fun HomeSubscriptionItem(
+    sub: Subscriptions,
+    onMarkPaid: () -> Unit
+) {
+    val firstLetter = sub.merchant.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    val safeFrequency =
+        if (sub.frequency.isNotEmpty()) sub.frequency.take(1).uppercase() + sub.frequency.drop(1).lowercase() else "Unknown"
+    val subtitleText = "$safeFrequency • Due on ${sub.billingDay}${getOrdinalSuffix(sub.billingDay)}"
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(46.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        firstLetter,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    sub.merchant,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(subtitleText, fontSize = 13.sp, color = Color.Gray, maxLines = 1)
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "₹${String.format("%.2f", sub.amount)}",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                FilledTonalButton(
+                    onClick = onMarkPaid,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Mark Paid",
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Paid", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        HorizontalDivider(
+            modifier = Modifier.fillMaxWidth(),
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+        )
+    }
 }
